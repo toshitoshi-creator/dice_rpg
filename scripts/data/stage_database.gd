@@ -1,14 +1,26 @@
 class_name StageDatabase
 extends RefCounted
-## ステージ構成。3 ステージで雑魚敵と戦い、4 ステージ目でボスと戦う。
-## ステージを増やす・順番を変える場合はここを編集する。
+## ステージ構成。
+## チャプター 1「はじまりの草原」はチュートリアル: 図鑑の No.1〜3（いちばん弱い雑魚）と
+## ボスの中でいちばん弱い No.10 スライムキングと戦う。
+## 今後チャプターを増やすときは、CHAPTERS に同じ形でステージを追加する
+## （そのチャプターの敵は EnemyDatabase.chapter_enemies(c) で取得できる）。
 
-const STAGES := [
-	{"title": "STAGE 1", "area_name": "はじまりの草原", "enemy_id": &"slime", "theme": &"day"},
-	{"title": "STAGE 2", "area_name": "ゴブリンの森", "enemy_id": &"goblin", "theme": &"dusk"},
-	{"title": "STAGE 3", "area_name": "がいこつの墓場", "enemy_id": &"skeleton", "theme": &"night"},
-	{"title": "BOSS", "area_name": "竜の玉座", "enemy_id": &"dragon", "theme": &"boss", "is_boss": true},
+const CHAPTERS := [
+	{
+		"title": "CHAPTER 1",
+		"stages": [
+			{"title": "STAGE 1", "area_name": "はじまりの草原", "enemy_no": 1, "theme": &"day"},
+			{"title": "STAGE 2", "area_name": "キノコの小道", "enemy_no": 2, "theme": &"day"},
+			{"title": "STAGE 3", "area_name": "花畑の丘", "enemy_no": 3, "theme": &"dusk"},
+			{"title": "BOSS", "area_name": "スライムの王座", "enemy_no": 10, "theme": &"boss", "is_boss": true},
+		],
+	},
 ]
+
+## 現在遊べるチャプター
+const CURRENT_CHAPTER := 0
+const STAGES: Array = CHAPTERS[CURRENT_CHAPTER]["stages"]
 
 
 static func count() -> int:
@@ -20,6 +32,7 @@ static func get_stage(index: int) -> StageData:
 	var entry: Dictionary = STAGES[i]
 	var stage := StageData.new()
 	stage.index = i
+	stage.chapter = CURRENT_CHAPTER + 1
 	for prop in entry:
 		stage.set(prop, entry[prop])
 	return stage

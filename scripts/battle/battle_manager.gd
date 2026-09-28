@@ -94,7 +94,7 @@ func start_battle() -> void:
 	camera.snap_default()
 	ui.reset_view()
 	ui.bind_actors(player, enemy)
-	ui.set_stage_info("%s  (%d / %d)" % [stage.title, stage.index + 1, progress.stage_count()], stage.is_boss)
+	ui.set_stage_info("CHAPTER %d  %s  (%d / %d)" % [stage.chapter, stage.title, stage.index + 1, progress.stage_count()], stage.is_boss)
 	last_dice_result = null
 	last_attack = null
 	_set_state(BattleState.State.SETUP)
@@ -105,7 +105,7 @@ func start_battle() -> void:
 	if id != _battle_id:
 		return
 	_set_state(BattleState.State.PLAYER_TURN)
-	ui.show_message("%s があらわれた！" % enemy.display_name)
+	ui.show_message("%sが あらわれた！" % enemy.display_name)
 
 
 ## 結果画面のボタン。
@@ -138,7 +138,7 @@ func _spawn_actors() -> void:
 
 	enemy = EnemyActor.new()
 	enemy.name = "Enemy"
-	enemy.setup(EnemyDatabase.get_enemy(stage.enemy_id))
+	enemy.setup(EnemyDatabase.get_enemy(stage.enemy_no))
 	enemy.position = field.enemy_spot
 	_actors_root.add_child(enemy)
 
@@ -215,13 +215,13 @@ func _run_player_turn(id: int) -> void:
 
 func _run_enemy_turn(id: int) -> void:
 	_set_state(BattleState.State.ENEMY_TURN)
-	ui.show_message("%s の%s！" % [enemy.display_name, enemy.data.attack_name])
+	ui.show_message("%sの %s！" % [enemy.display_name, enemy.data.attack_name])
 	await _wait(0.45)
 	if id != _battle_id:
 		return
 	camera.focus_player()
 	sound.play(&"enemy_attack")
-	await enemy.lunge_to(player.position, enemy.get_lunge_ratio())
+	await enemy.lunge_to(player.position, enemy.get_lunge_ratio(player.position))
 	if id != _battle_id:
 		return
 	var result := damage_calculator.calculate_enemy_attack(enemy, player)

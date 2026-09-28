@@ -18,6 +18,9 @@ var hp: int = 100
 var model: Node3D
 
 var _materials: Array[StandardMaterial3D] = []
+## マテリアルの元の発光・透明度（フラッシュ・フェード後に戻すため）
+var _material_bases: Dictionary = {}
+var _flash_tween: Tween
 var _idle_tween: Tween
 var _home_position := Vector3.ZERO
 
@@ -28,6 +31,7 @@ func _ready() -> void:
 	model.name = "Model"
 	add_child(model)
 	_build_model()
+	_capture_material_bases()
 	_home_position = position
 	start_idle()
 
@@ -125,14 +129,43 @@ func _on_strike(_duration: float) -> void:
 	pass
 
 
-## 白く光らせる。
+func _capture_material_bases() -> void:
+	_material_bases.clear()
+	for mat in _materials:
+		_material_bases[mat] = {
+			"enabled": mat.emission_enabled,
+			"emission": mat.emission,
+			"energy": mat.emission_energy_multiplier if mat.emission_enabled else 0.0,
+			"alpha": mat.albedo_color.a,
+			"transparency": mat.transparency,
+		}
+
+
+## 白く光らせる（光る目などの元の発光は最後に元に戻す）。
 func flash(color: Color = Color.WHITE, duration: float = 0.3) -> void:
-	var t := create_tween().set_parallel(true)
+	if _flash_tween and _flash_tween.is_valid():
+		_flash_tween.kill()
 	for mat in _materials:
 		mat.emission_enabled = true
-		mat.emission = color
-		mat.emission_energy_multiplier = 3.0
-		t.tween_property(mat, "emission_energy_multiplier", 0.0, duration)
+	_flash_tween = create_tween()
+	_flash_tween.tween_method(_apply_flash.bind(color), 1.0, 0.0, duration)
+	_flash_tween.tween_callback(_restore_emission)
+
+
+func _apply_flash(amount: float, color: Color) -> void:
+	for mat in _materials:
+		var base: Dictionary = _material_bases.get(mat, {"emission": Color.BLACK, "energy": 0.0})
+		mat.emission = (base["emission"] as Color).lerp(color, amount)
+		mat.emission_energy_multiplier = lerpf(base["energy"], 3.0, amount)
+
+
+func _restore_emission() -> void:
+	for mat in _materials:
+		if _material_bases.has(mat):
+			var base: Dictionary = _material_bases[mat]
+			mat.emission_enabled = base["enabled"]
+			mat.emission = base["emission"]
+			mat.emission_energy_multiplier = base["energy"] if base["enabled"] else 1.0
 
 
 ## 攻撃：少し溜めてから target に向かって踏み込む。踏み込み完了（命中の瞬間）で戻る。
@@ -205,6 +238,7 @@ func play_death(away_direction: Vector3) -> void:
 
 func _set_alpha(alpha: float) -> void:
 	for mat in _materials:
+		var base_alpha: float = (_material_bases.get(mat, {"alpha": 1.0}) as Dictionary)["alpha"]
 		var c := mat.albedo_color
-		c.a = alpha
+		c.a = alpha * base_alpha
 		mat.albedo_color = c

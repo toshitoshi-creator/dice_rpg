@@ -27,7 +27,7 @@ func _run() -> void:
 	await _test_dice_face_mapping()
 	await _test_damage_table()
 	await _test_dice_physics_rolls()
-	await _test_enemy_models()
+	await _test_bestiary()
 
 	var scene: PackedScene = load(MAIN_SCENE)
 	manager = scene.instantiate() as BattleManager
@@ -127,7 +127,7 @@ func _test_damage_table() -> void:
 	var calc := DamageCalculator.new()
 	var p := PlayerActor.new()
 	var e := EnemyActor.new()
-	e.setup(EnemyDatabase.get_enemy(&"slime"))
+	e.setup(EnemyDatabase.get_enemy(1))
 	var expected := {1: 5, 2: 10, 3: 15, 4: 20, 5: 30, 6: 50}
 	var ok := true
 	for v in expected:
@@ -138,8 +138,8 @@ func _test_damage_table() -> void:
 		if r.is_critical != (v == 6):
 			ok = false
 	_check(ok, "roll 1..6 -> 5/10/15/20/30/50 damage, 6 is CRITICAL")
-	_check(calc.calculate_enemy_attack(e, p).amount == 10, "slime attack deals 10 damage")
-	_check(e.max_hp == 100 and e.attack == 10 and e.defense == 0, "slime stats HP100 ATK10 DEF0")
+	_check(calc.calculate_enemy_attack(e, p).amount == e.attack, "enemy attack deals its ATK as damage")
+	_check(e.display_name == "スライム" and e.max_hp == 41 and e.attack == 5 and e.defense == 0, "No.1 スライム: HP41 ATK5 DEF0 (tutorial)")
 	_check(p.max_hp == 100 and p.attack == 1 and p.defense == 0, "player stats HP100 ATK1 DEF0")
 	p.free()
 	e.free()
@@ -197,10 +197,15 @@ func _test_dice_physics_rolls() -> void:
 
 
 # ------------------------------------------------------------------
-func _press_overlay(action: StringName) -> bool:
+func _wait_overlay() -> void:
+	var limit := 6000.0 * (3.0 if take_shots else 1.0)
 	var t0 := Time.get_ticks_msec()
-	while not manager.ui.is_overlay_visible() and Time.get_ticks_msec() - t0 < 6000:
+	while not manager.ui.is_overlay_visible() and Time.get_ticks_msec() - t0 < limit:
 		await process_frame
+
+
+func _press_overlay(action: StringName) -> bool:
+	await _wait_overlay()
 	var b := manager.ui.get_overlay_button(action)
 	if b == null:
 		return false
@@ -219,29 +224,86 @@ func _win_current_stage(expected_state: BattleState.State) -> bool:
 	return await _wait_state(expected_state, 25.0)
 
 
-func _test_enemy_models() -> void:
-	print("\n[Unit] Enemy models & stages")
-	var ok := true
-	for id in EnemyDatabase.ENEMIES:
-		var e := EnemyActor.new()
-		e.setup(EnemyDatabase.get_enemy(id))
-		root.add_child(e)
-		var meshes := e.find_children("*", "MeshInstance3D", true, false).size()
-		if meshes < 5:
-			ok = false
-			printerr("    %s has only %d meshes" % [id, meshes])
-		e.queue_free()
+func _test_bestiary() -> void:
+	print("\n[Unit] Enemy bestiary (120)")
+	var all := EnemyDatabase.all()
+	_check(all.size() == 120, "120 enemies registered (%d)" % all.size())
+	var numbers_ok := true
+	var ids := {}
+	var names := {}
+	var mobs := 0
+	var bosses := 0
+	var mob_species := {}
+	var boss_species := {}
+	for i in all.size():
+		var e: EnemyData = all[i]
+		if e.no != i + 1:
+			numbers_ok = false
+		ids[e.id] = true
+		names[e.display_name] = true
+		if e.is_boss:
+			bosses += 1
+			boss_species[e.species_id] = boss_species.get(e.species_id, 0) + 1
+		else:
+			mobs += 1
+			mob_species[e.species_id] = mob_species.get(e.species_id, 0) + 1
+	_check(numbers_ok, "No.1 - No.120 are sequential")
+	_check(ids.size() == 120 and names.size() == 120, "ids and names are unique")
+	_check(mobs == 90 and mob_species.size() == 30 and mob_species.values().all(func(c): return c == 3), "30 normal species x 3 colors = 90")
+	_check(bosses == 30 and boss_species.size() == 10 and boss_species.values().all(func(c): return c == 3), "10 boss species x 3 colors = 30")
+	var stronger := true
+	for i in range(1, all.size()):
+		var a: EnemyData = all[i - 1]
+		var b: EnemyData = all[i]
+		if not (b.max_hp > a.max_hp and b.attack >= a.attack and b.defense >= a.defense):
+			stronger = false
+			printerr("    No.%d -> No.%d is not stronger" % [a.no, b.no])
+	_check(stronger, "higher No. is always stronger (HP up, ATK/DEF never down)")
+	var ch1_ok := true
+	for i in StageDatabase.count():
+		var e := EnemyDatabase.get_enemy(StageDatabase.get_stage(i).enemy_no)
+		if e.chapter != 1 or e.max_hp > 150 or e.attack > 12:
+			ch1_ok = false
+	_check(ch1_ok, "chapter 1 (tutorial) enemies are weak (HP <= 150, ATK <= 12)")
+	var boss := EnemyDatabase.get_enemy(StageDatabase.get_stage(StageDatabase.count() - 1).enemy_no)
+	_check(boss.is_boss and boss.no == 10, "chapter 1 boss is No.10 %s (weakest boss)" % boss.display_name)
+
+	# 全 120 体のモデルが作れて、パレットの色指定もれが無く、大きさが範囲内
+	var model_ok := true
+	var size_ok := true
+	var roles_ok := true
+	for e in all:
+		var actor := EnemyActor.new()
+		actor.setup(e)
+		root.add_child(actor)
+		var meshes := actor.find_children("*", "MeshInstance3D", true, false).size()
+		if meshes < 8:
+			model_ok = false
+			printerr("    No.%d %s has only %d meshes" % [e.no, e.display_name, meshes])
+		var sz := actor.get_model_size()
+		if sz.y > e.target_height + 0.01 or sz.x > e.max_width + 0.01 or sz.y < 0.7:
+			size_ok = false
+			printerr("    No.%d size %s" % [e.no, sz])
+		var kit := ModelKit.new(e.palette)
+		EnemyModels.build(e.model_type, kit, Node3D.new())
+		if not kit.missing_roles.is_empty():
+			roles_ok = false
+			printerr("    No.%d missing palette roles %s" % [e.no, kit.missing_roles])
+		actor.queue_free()
 	await _frames(2)
-	_check(ok, "every enemy type builds its 3D model")
-	_check(StageDatabase.count() == 4, "4 stages")
-	var boss := StageDatabase.get_stage(3)
-	_check(boss.is_boss and boss.enemy_id == &"dragon", "stage 4 is the DRAGON boss")
-	var weak := true
-	for i in 3:
-		var st := StageDatabase.get_stage(i)
-		if st.is_boss or not EnemyDatabase.has_enemy(st.enemy_id):
-			weak = false
-	_check(weak, "stages 1-3 are normal enemies")
+	_check(model_ok, "all 120 models build")
+	_check(size_ok, "all models fit their target size")
+	_check(roles_ok, "no missing palette colors")
+
+
+func _launch_intro_done() -> bool:
+	return await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+
+
+## 敵がうっかり倒れないように HP を増やす（反撃・敗北のテスト用）。
+func _make_enemy_tough() -> void:
+	manager.enemy.max_hp = 9999
+	manager.enemy.hp = 9999
 
 
 func _test_launch() -> void:
@@ -251,9 +313,9 @@ func _test_launch() -> void:
 	_check(manager.state == BattleState.State.SETUP, "cannot roll during the stage intro")
 	await _seconds(0.5)
 	await _shot("00_stage_intro.png")
-	var ok := await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+	var ok := await _launch_intro_done()
 	_check(ok, "intro ends -> PLAYER_TURN")
-	_check(manager.stage.index == 0 and manager.enemy.display_name == "SLIME" and manager.enemy.hp == 100, "STAGE 1: SLIME with 100 HP")
+	_check(manager.stage.index == 0 and manager.enemy.data.no == 1 and manager.enemy.hp == 41, "CHAPTER 1 STAGE 1: No.1 スライム (HP 41)")
 	_check(manager.player.hp == 100 and manager.player.max_hp == 100, "player has 100 HP")
 	_check(not manager.ui.roll_button.disabled, "roll button is enabled")
 	await _seconds(0.6)
@@ -262,8 +324,10 @@ func _test_launch() -> void:
 
 func _test_full_turn() -> void:
 	print("\n[Test 2-7] Roll -> damage -> enemy counterattack")
+	_make_enemy_tough()
 	var enemy_hp := manager.enemy.hp
 	var player_hp := manager.player.hp
+	var enemy_atk := manager.enemy.attack
 	manager.ui.roll_button.pressed.emit()
 	_check(manager.state == BattleState.State.ROLLING, "pressing the button starts ROLLING")
 	_check(manager.ui.roll_button.disabled, "button disabled while rolling")
@@ -287,7 +351,7 @@ func _test_full_turn() -> void:
 
 	ok = await _wait_state(BattleState.State.ENEMY_TURN, 10.0)
 	_check(ok, "enemy turn starts after player attack")
-	var expected_damage: int = manager.damage_calculator.dice_damage[value]
+	var expected_damage: int = maxi(manager.damage_calculator.dice_damage[value] - manager.enemy.defense, 1)
 	_check(manager.enemy.hp == enemy_hp - expected_damage, "enemy HP %d -> %d (dice %d = %d dmg)" % [enemy_hp, manager.enemy.hp, value, expected_damage])
 	manager.request_roll()
 	_check(manager.state == BattleState.State.ENEMY_TURN, "cannot roll during ENEMY_TURN")
@@ -296,99 +360,93 @@ func _test_full_turn() -> void:
 
 	ok = await _wait_state(BattleState.State.PLAYER_TURN, 10.0)
 	_check(ok, "back to PLAYER_TURN")
-	_check(manager.player.hp == player_hp - 10, "enemy counterattacked: player HP %d -> %d" % [player_hp, manager.player.hp])
+	_check(manager.player.hp == player_hp - enemy_atk, "enemy counterattacked: player HP %d -> %d" % [player_hp, manager.player.hp])
 	_check(not manager.ui.roll_button.disabled, "button re-enabled on player turn")
 
 
 func _test_defeat_stage1() -> void:
 	print("\n[Test 9] Defeat (stage 1) -> retry")
+	_make_enemy_tough()
 	manager.enemy.attack = 999
 	manager.request_roll()
 	var ok := await _wait_state(BattleState.State.DEFEAT, 25.0)
 	_check(ok and manager.player.hp == 0, "player HP 0 -> DEFEAT")
 	manager.request_roll()
 	_check(manager.state == BattleState.State.DEFEAT, "cannot roll after defeat")
-	var t0 := Time.get_ticks_msec()
-	while not manager.ui.is_overlay_visible() and Time.get_ticks_msec() - t0 < 5000:
-		await process_frame
+	await _wait_overlay()
 	_check(manager.ui.get_overlay_button(&"retry") != null and manager.ui.get_overlay_button(&"restart") == null, "stage 1 defeat offers retry only")
 	await _seconds(0.6)
 	await _shot("05_defeat.png")
 	_check(await _press_overlay(&"retry"), "press retry")
-	_check(manager.stage.index == 0 and manager.enemy.hp == 100 and manager.enemy.attack == 10, "retry restarts stage 1 with a fresh SLIME")
+	_check(manager.stage.index == 0 and manager.enemy.hp == 41 and manager.enemy.attack == 5, "retry restarts stage 1 with a fresh スライム")
 	_check(manager.player.hp == 100 and manager.player.visible, "player restored")
 
 
 func _test_stage_progression() -> void:
 	print("\n[Test 8/10] Stage 1 -> 2 -> 3 -> BOSS -> GAME CLEAR")
-	var names := ["SLIME", "GOBLIN", "SKELETON", "DRAGON"]
 	for i in 3:
-		_check(manager.stage.index == i and manager.enemy.display_name == names[i], "stage %d: %s" % [i + 1, names[i]])
+		var expected := EnemyDatabase.get_enemy(StageDatabase.get_stage(i).enemy_no)
+		_check(manager.stage.index == i and manager.enemy.data.no == i + 1, "stage %d: No.%d %s" % [i + 1, expected.no, expected.display_name])
 		_check(manager.player.max_hp == 100 + 20 * i and manager.player.hp == manager.player.max_hp, "player max HP %d, full HP at stage start" % manager.player.max_hp)
 		var ok := await _win_current_stage(BattleState.State.VICTORY)
 		_check(ok, "stage %d cleared (VICTORY)" % [i + 1])
 		manager.request_roll()
 		_check(manager.state == BattleState.State.VICTORY, "cannot roll after stage clear")
-		var t0 := Time.get_ticks_msec()
-		while not manager.ui.is_overlay_visible() and Time.get_ticks_msec() - t0 < 5000:
-			await process_frame
+		await _wait_overlay()
 		_check(not manager.enemy.visible, "enemy faded out")
 		if i == 0:
 			await _seconds(0.6)
 			await _shot("06_stage_clear.png")
 		_check(await _press_overlay(&"next"), "press 'next stage'")
-		if i == 1:
+		if i < 2:
+			await _launch_intro_done()
 			await _seconds(0.3)
-			await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
-			await _seconds(0.3)
-			await _shot("07_stage3_skeleton.png")
-		if i == 0:
-			await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
-			await _seconds(0.3)
-			await _shot("07_stage2_goblin.png")
+			await _shot("07_stage%d.png" % (i + 2))
 
-	_check(manager.stage.is_boss and manager.enemy.display_name == "DRAGON", "stage 4: DRAGON boss")
-	_check(manager.enemy.max_hp == 220, "boss has 220 HP")
+	_check(manager.stage.is_boss and manager.enemy.data.no == 10 and manager.enemy.data.is_boss, "BOSS: No.10 %s" % manager.enemy.display_name)
+	_check(manager.enemy.max_hp == 135, "boss has 135 HP (tutorial boss)")
 	_check(manager.player.max_hp == 160 and manager.player.hp == 160, "player max HP 160 at the boss")
-	await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+	await _launch_intro_done()
 	await _seconds(0.3)
 	await _shot("08_boss.png")
-	# ボスとは実際に 1 ターン戦う
 	var boss_hp := manager.enemy.hp
+	var boss_atk := manager.enemy.attack
 	manager.request_roll()
 	var ok := await _wait_state(BattleState.State.PLAYER_TURN, 25.0)
-	_check(ok and manager.enemy.hp < boss_hp and manager.player.hp == 160 - 14, "a full turn against the boss works (boss hits for 14)")
+	_check(ok and manager.enemy.hp < boss_hp and manager.player.hp == 160 - boss_atk, "a full turn against the boss works (boss hits for %d)" % boss_atk)
 	await _shot("09_boss_fight.png")
 	ok = await _win_current_stage(BattleState.State.GAME_CLEAR)
 	_check(ok, "boss defeated -> GAME_CLEAR")
-	var t0 := Time.get_ticks_msec()
-	while not manager.ui.is_overlay_visible() and Time.get_ticks_msec() - t0 < 5000:
-		await process_frame
+	await _wait_overlay()
 	_check(manager.ui.get_overlay_button(&"restart") != null and manager.ui.get_overlay_button(&"next") == null, "GAME CLEAR screen offers 'play again'")
 	await _seconds(0.6)
 	await _shot("10_game_clear.png")
 	_check(await _press_overlay(&"restart"), "press 'play again'")
-	_check(manager.stage.index == 0 and manager.enemy.display_name == "SLIME" and manager.player.max_hp == 100, "back to STAGE 1 with base stats")
+	_check(manager.stage.index == 0 and manager.enemy.data.no == 1 and manager.player.max_hp == 100, "back to STAGE 1 with base stats")
 
 
 func _test_defeat_later_stage() -> void:
 	print("\n[Test 9b] Defeat on stage 2 -> retry same stage / restart from stage 1")
 	manager.start_stage(1)
-	await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+	await _launch_intro_done()
+	_make_enemy_tough()
 	manager.enemy.attack = 999
 	manager.request_roll()
 	var ok := await _wait_state(BattleState.State.DEFEAT, 25.0)
 	_check(ok, "DEFEAT on stage 2")
 	_check(await _press_overlay(&"retry"), "press retry")
-	_check(manager.stage.index == 1 and manager.enemy.display_name == "GOBLIN" and manager.player.max_hp == 120, "retry keeps stage 2 (GOBLIN, max HP 120)")
-	await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+	_check(manager.stage.index == 1 and manager.enemy.data.no == 2 and manager.player.max_hp == 120, "retry keeps stage 2 (No.2, max HP 120)")
+	await _launch_intro_done()
+	_make_enemy_tough()
 	manager.enemy.attack = 999
 	manager.request_roll()
 	ok = await _wait_state(BattleState.State.DEFEAT, 25.0)
 	_check(ok, "DEFEAT again")
 	_check(await _press_overlay(&"restart"), "press 'restart from stage 1'")
-	_check(manager.stage.index == 0 and manager.enemy.display_name == "SLIME" and manager.player.max_hp == 100, "restart goes back to STAGE 1")
-	ok = await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+	_check(manager.stage.index == 0 and manager.enemy.data.no == 1 and manager.player.max_hp == 100, "restart goes back to STAGE 1")
+	ok = await _launch_intro_done()
+	_make_enemy_tough()
+	var atk := manager.enemy.attack
 	manager.request_roll()
 	ok = ok and await _wait_state(BattleState.State.PLAYER_TURN, 25.0)
-	_check(ok and manager.enemy.hp < 100 and manager.player.hp == 90, "a full turn works after restart")
+	_check(ok and manager.enemy.hp < 9999 and manager.player.hp == 100 - atk, "a full turn works after restart")
