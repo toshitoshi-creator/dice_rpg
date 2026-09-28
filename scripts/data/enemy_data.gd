@@ -10,3 +10,12 @@ extends Resource
 @export var model_type: StringName = &"slime"
 @export var body_color: Color = Color(0.3, 0.85, 0.45)
 @export var model_scale: float = 1.0
+## 攻撃名（「SLIME の たいあたり！」）
+@export var attack_name: String = "こうげき"
+## 攻撃エフェクト・ダメージ数字を出す高さと前方オフセット
+@export var hit_height: float = 0.9
+@export var hit_forward: float = 0.0
+## 攻撃時のジャンプの高さ・プレイヤーへの踏み込み割合
+@export var jump_height: float = 0.9
+@export var lunge_ratio: float = 0.7
+@export var is_boss: bool = false

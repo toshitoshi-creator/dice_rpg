@@ -9,8 +9,17 @@ Godot 4.3 以降 / GDScript。外部アセット不要（モデル・エフェ�
 2. 「サイコロを振る」ボタン（または Space / Enter）を押す
 3. サイコロが飛んで転がり、止まった時の上面の数字でダメージが決まる
 4. 敵が生きていれば反撃してくる
-5. 敵の HP を 0 にすれば VICTORY、自分の HP が 0 になれば DEFEAT
-6. 「もう一度戦う」でバトルを最初から
+5. 敵を倒すとステージクリア → 次のステージへ。4 ステージ目のボスを倒せば GAME CLEAR
+6. 負けたら「このステージに再挑戦」か「最初から」
+
+| ステージ | 敵 | HP | 攻撃 | プレイヤー最大HP |
+|---|---|---|---|---|
+| STAGE 1 はじまりの草原 | SLIME | 100 | 10 | 100 |
+| STAGE 2 ゴブリンの森 | GOBLIN | 120 | 12 | 120 |
+| STAGE 3 がいこつの墓場 | SKELETON | 150 | 13 | 140 |
+| BOSS 竜の玉座 | DRAGON | 220 | 14 | 160 |
+
+ステージをクリアするたびに最大 HP が +20 され、各ステージ開始時に HP は全回復する。
 
 | 出目 | 1 | 2 | 3 | 4 | 5 | 6 |
 |---|---|---|---|---|---|---|
@@ -66,7 +75,10 @@ scripts/
 │   └── enemy.gd                 敵（EnemyData からモデル生成）
 ├── data/
 │   ├── enemy_data.gd            敵データ Resource
-│   └── enemy_database.gd        敵一覧（Slime。ここに Goblin 等を追加）
+│   ├── enemy_database.gd        敵一覧（Slime / Goblin / Skeleton / Dragon）
+│   ├── stage_data.gd            ステージデータ Resource
+│   └── stage_database.gd        ステージ構成（3 ステージ + ボス）
+├── game/game_progress.gd        進行状況（現在のステージ・最大 HP の成長）
 ├── ui/
 │   ├── battle_ui.gd             HP バー・ボタン・出目表示・勝敗画面
 │   ├── hp_bar.gd                滑らかに減る HP バー
@@ -86,7 +98,9 @@ assets/fonts/                    Noto Sans JP サブセット + ライセンス
 - **ダメージ表**: `DamageCalculator.dice_damage`、クリティカル倍率は `critical_multiplier`
 - **サイコロ能力**（偶数で追加ダメージ、1 で毒など）: `DamageCalculator._apply_dice_abilities()` と `AttackResult.tags`
 - **サイコロの種類**: `Dice.dice_type` / `Dice.face_values`（面ごとの数字を差し替え可能）
-- **敵の追加**: `EnemyDatabase.ENEMIES` にデータを追加し、必要なら `EnemyActor._build_model()` にモデルを追加
+- **敵の追加**: `EnemyDatabase.ENEMIES` にデータを追加し、`EnemyActor._build_model()` にモデルを追加
+- **ステージの追加・並べ替え**: `StageDatabase.STAGES`（見た目テーマは `BattleField.THEMES`）
+- **成長量**: `GameProgress.MAX_HP_PER_CLEAR`
 - **効果音**: `assets/sounds/` に `dice_roll`, `dice_hit`, `attack`, `damage`, `critical`, `enemy_attack`, `enemy_die`, `victory`, `defeat`, `button` という名前で `.ogg` / `.wav` / `.mp3` を置くだけで差し替わる
 
 ## テスト

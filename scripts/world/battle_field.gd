@@ -10,8 +10,36 @@ var enemy_spot := Vector3(0, 0, -4.7)
 var player_spot := Vector3(0, 0, 4.4)
 var dice_rest_position := Vector3(0, 0.5, 0.6)
 
+## ステージごとの見た目（空・太陽・霧・松明の強さ）
+const THEMES := {
+	&"day": {
+		"sky_top": Color(0.16, 0.24, 0.5), "sky_horizon": Color(0.93, 0.62, 0.45),
+		"sun_color": Color(1.0, 0.93, 0.82), "sun_energy": 1.3, "ambient": 0.55,
+		"fog_color": Color(0.75, 0.6, 0.6), "fog_density": 0.004, "torch": 2.2,
+	},
+	&"dusk": {
+		"sky_top": Color(0.2, 0.12, 0.35), "sky_horizon": Color(1.0, 0.45, 0.25),
+		"sun_color": Color(1.0, 0.68, 0.45), "sun_energy": 1.1, "ambient": 0.45,
+		"fog_color": Color(0.8, 0.45, 0.35), "fog_density": 0.006, "torch": 2.8,
+	},
+	&"night": {
+		"sky_top": Color(0.02, 0.03, 0.1), "sky_horizon": Color(0.18, 0.22, 0.4),
+		"sun_color": Color(0.6, 0.7, 1.0), "sun_energy": 0.7, "ambient": 0.4,
+		"fog_color": Color(0.2, 0.25, 0.4), "fog_density": 0.012, "torch": 3.5,
+	},
+	&"boss": {
+		"sky_top": Color(0.12, 0.02, 0.05), "sky_horizon": Color(0.75, 0.18, 0.08),
+		"sun_color": Color(1.0, 0.5, 0.35), "sun_energy": 1.0, "ambient": 0.45,
+		"fog_color": Color(0.5, 0.12, 0.08), "fog_density": 0.01, "torch": 3.5,
+	},
+}
+
 var _torch_lights: Array[OmniLight3D] = []
+var _torch_energy := 2.2
 var _time := 0.0
+var _env: Environment
+var _sky_mat: ProceduralSkyMaterial
+var _sun: DirectionalLight3D
 
 
 func _ready() -> void:
@@ -26,12 +54,27 @@ func _process(delta: float) -> void:
 	_time += delta
 	for i in _torch_lights.size():
 		var l := _torch_lights[i]
-		l.light_energy = 2.2 + sin(_time * 9.0 + i * 1.7) * 0.25 + sin(_time * 23.0 + i) * 0.15
+		l.light_energy = _torch_energy + sin(_time * 9.0 + i * 1.7) * 0.25 + sin(_time * 23.0 + i) * 0.15
+
+
+## ステージのテーマを適用する（_ready 後に呼ぶ）。
+func apply_theme(theme_id: StringName) -> void:
+	var theme: Dictionary = THEMES.get(theme_id, THEMES[&"day"])
+	_sky_mat.sky_top_color = theme["sky_top"]
+	_sky_mat.sky_horizon_color = theme["sky_horizon"]
+	_sky_mat.ground_horizon_color = (theme["sky_horizon"] as Color).darkened(0.4)
+	_sun.light_color = theme["sun_color"]
+	_sun.light_energy = theme["sun_energy"]
+	_env.ambient_light_energy = theme["ambient"]
+	_env.fog_light_color = theme["fog_color"]
+	_env.fog_density = theme["fog_density"]
+	_torch_energy = theme["torch"]
 
 
 # ------------------------------------------------------------------
 func _build_environment() -> void:
 	var sky_mat := ProceduralSkyMaterial.new()
+	_sky_mat = sky_mat
 	sky_mat.sky_top_color = Color(0.16, 0.24, 0.5)
 	sky_mat.sky_horizon_color = Color(0.93, 0.62, 0.45)
 	sky_mat.ground_horizon_color = Color(0.5, 0.4, 0.38)
@@ -41,6 +84,7 @@ func _build_environment() -> void:
 	sky.sky_material = sky_mat
 
 	var env := Environment.new()
+	_env = env
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
@@ -62,6 +106,7 @@ func _build_environment() -> void:
 	add_child(world_env)
 
 	var sun := DirectionalLight3D.new()
+	_sun = sun
 	sun.name = "Sun"
 	sun.light_color = Color(1.0, 0.93, 0.82)
 	sun.light_energy = 1.3

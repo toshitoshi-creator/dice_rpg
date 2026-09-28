@@ -2,15 +2,17 @@ class_name BattleManager
 extends Node3D
 ## バトル全体の進行役。
 ## フィールド・キャラクター・サイコロ・UI を生成し、状態遷移に従ってターンを進める。
-## ゲームルール（ダメージ計算）は DamageCalculator、表示は BattleUI に任せる。
+## ステージ進行は GameProgress、ゲームルール（ダメージ計算）は DamageCalculator、
+## 表示は BattleUI に任せる。
 
 signal state_changed(new_state: BattleState.State)
 signal turn_finished
-
-@export var enemy_id: StringName = &"slime"
+signal stage_started(stage: StageData)
 
 var state: BattleState.State = BattleState.State.SETUP
 var damage_calculator := DamageCalculator.new()
+var progress := GameProgress.new()
+var stage: StageData
 
 var field: BattleField
 var dice: Dice
@@ -59,40 +61,66 @@ func _ready() -> void:
 	ui.name = "BattleUI"
 	add_child(ui)
 	ui.roll_pressed.connect(request_roll)
-	ui.retry_pressed.connect(restart_battle)
+	ui.overlay_action.connect(_on_overlay_action)
 
-	start_battle()
+	start_stage(0)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_accept"):
 		if BattleState.can_roll(state):
 			request_roll()
-		elif BattleState.is_battle_over(state) and ui.is_overlay_visible():
-			restart_battle()
+		elif BattleState.is_battle_over(state):
+			ui.press_primary_overlay_button()
 
 
 # ------------------------------------------------------------------
-# バトル開始・リトライ
+# ステージ開始・リトライ
 # ------------------------------------------------------------------
+## 指定ステージから開始する（0 = STAGE 1）。
+func start_stage(index: int) -> void:
+	progress.stage_index = clampi(index, 0, progress.stage_count() - 1)
+	start_battle()
+
+
+## 現在のステージのバトルを最初から始める。
 func start_battle() -> void:
 	_battle_id += 1
+	var id := _battle_id
+	stage = progress.current_stage()
+	field.apply_theme(stage.theme)
 	_spawn_actors()
 	dice.reset_to_rest()
 	camera.snap_default()
 	ui.reset_view()
 	ui.bind_actors(player, enemy)
+	ui.set_stage_info("%s  (%d / %d)" % [stage.title, stage.index + 1, progress.stage_count()], stage.is_boss)
 	last_dice_result = null
 	last_attack = null
+	_set_state(BattleState.State.SETUP)
+	ui.show_message("")
+	stage_started.emit(stage)
+
+	await ui.play_stage_intro(stage.title, stage.area_name, stage.is_boss)
+	if id != _battle_id:
+		return
 	_set_state(BattleState.State.PLAYER_TURN)
 	ui.show_message("%s があらわれた！" % enemy.display_name)
 
 
-func restart_battle() -> void:
+## 結果画面のボタン。
+func _on_overlay_action(action: StringName) -> void:
 	if not BattleState.is_battle_over(state):
 		return
 	sound.play(&"button")
-	start_battle()
+	match action:
+		&"next":
+			progress.advance()
+			start_battle()
+		&"retry":
+			start_battle()
+		&"restart":
+			start_stage(0)
 
 
 func _spawn_actors() -> void:
@@ -104,12 +132,13 @@ func _spawn_actors() -> void:
 
 	player = PlayerActor.new()
 	player.name = "Player"
+	player.setup_stats("PLAYER", progress.player_max_hp(), 1, 0)
 	player.position = field.player_spot
 	_actors_root.add_child(player)
 
 	enemy = EnemyActor.new()
 	enemy.name = "Enemy"
-	enemy.setup(EnemyDatabase.get_enemy(enemy_id))
+	enemy.setup(EnemyDatabase.get_enemy(stage.enemy_id))
 	enemy.position = field.enemy_spot
 	_actors_root.add_child(enemy)
 
@@ -186,13 +215,13 @@ func _run_player_turn(id: int) -> void:
 
 func _run_enemy_turn(id: int) -> void:
 	_set_state(BattleState.State.ENEMY_TURN)
-	ui.show_message("%s のこうげき！" % enemy.display_name)
+	ui.show_message("%s の%s！" % [enemy.display_name, enemy.data.attack_name])
 	await _wait(0.45)
 	if id != _battle_id:
 		return
 	camera.focus_player()
 	sound.play(&"enemy_attack")
-	await enemy.lunge_to(player.position, 0.7)
+	await enemy.lunge_to(player.position, enemy.get_lunge_ratio())
 	if id != _battle_id:
 		return
 	var result := damage_calculator.calculate_enemy_attack(enemy, player)
@@ -231,7 +260,8 @@ func _apply_damage(target: BattleActor, result: AttackResult, knock_dir: Vector3
 
 
 func _run_victory(id: int) -> void:
-	_set_state(BattleState.State.VICTORY)
+	var is_final := progress.is_final_stage()
+	_set_state(BattleState.State.GAME_CLEAR if is_final else BattleState.State.VICTORY)
 	ui.show_message("")
 	sound.play(&"enemy_die")
 	await enemy.play_death(Vector3(0, 0, -1))
@@ -239,7 +269,10 @@ func _run_victory(id: int) -> void:
 		return
 	camera.focus_default()
 	sound.play(&"victory")
-	ui.show_victory(enemy.display_name)
+	if is_final:
+		ui.show_game_clear(enemy.display_name)
+	else:
+		ui.show_stage_clear(enemy.display_name, progress.player_max_hp(), progress.player_max_hp(progress.stage_index + 1))
 
 
 func _run_defeat(id: int) -> void:
@@ -250,7 +283,7 @@ func _run_defeat(id: int) -> void:
 		return
 	camera.focus_default()
 	sound.play(&"defeat")
-	ui.show_defeat()
+	ui.show_defeat(progress.stage_index > 0)
 
 
 func _on_dice_impact(strength: float) -> void:

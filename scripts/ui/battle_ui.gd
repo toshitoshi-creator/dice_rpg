@@ -3,7 +3,8 @@ extends CanvasLayer
 ## バトル画面の 2D UI。ゲームロジックは持たず、表示とボタン入力の通知だけを行う。
 
 signal roll_pressed
-signal retry_pressed
+## 結果画面のボタン（&"next" = 次のステージ, &"retry" = 再挑戦, &"restart" = 最初から）
+signal overlay_action(action: StringName)
 
 var enemy_bar: HpBar
 var player_bar: HpBar
@@ -17,9 +18,14 @@ var _overlay: ColorRect
 var _overlay_panel: PanelContainer
 var _overlay_title: Label
 var _overlay_subtitle: Label
-var _retry_button: Button
+var _overlay_detail: Label
+var _overlay_buttons: VBoxContainer
+var _stage_tag: Label
+var _banner_title: Label
+var _banner_subtitle: Label
 var _result_tween: Tween
 var _button_tween: Tween
+var _banner_tween: Tween
 
 
 func _ready() -> void:
@@ -54,11 +60,11 @@ func _build_top() -> void:
 	_root.add_child(panel)
 	var box := VBoxContainer.new()
 	panel.add_child(box)
-	var tag := Label.new()
-	tag.text = "ENEMY"
-	tag.add_theme_font_size_override("font_size", 18)
-	tag.add_theme_color_override("font_color", Color(1, 0.55, 0.55))
-	box.add_child(tag)
+	_stage_tag = Label.new()
+	_stage_tag.text = "STAGE 1"
+	_stage_tag.add_theme_font_size_override("font_size", 20)
+	_stage_tag.add_theme_color_override("font_color", Color(1, 0.55, 0.55))
+	box.add_child(_stage_tag)
 	enemy_bar = HpBar.new("SLIME", Color(0.9, 0.3, 0.35))
 	box.add_child(enemy_bar)
 
@@ -123,6 +129,16 @@ func _build_center() -> void:
 	_sub_result_label.anchor_bottom = 0.57
 	_root.add_child(_sub_result_label)
 
+	# ステージ開始時のバナー
+	_banner_title = _make_big_label(120, Color(1, 0.9, 0.55))
+	_banner_title.anchor_top = 0.3
+	_banner_title.anchor_bottom = 0.42
+	_root.add_child(_banner_title)
+	_banner_subtitle = _make_big_label(40, Color(1, 0.97, 0.9))
+	_banner_subtitle.anchor_top = 0.42
+	_banner_subtitle.anchor_bottom = 0.5
+	_root.add_child(_banner_subtitle)
+
 
 func _make_big_label(font_size: int, color: Color) -> Label:
 	var l := Label.new()
@@ -152,7 +168,7 @@ func _build_overlay() -> void:
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_overlay.add_child(center)
 	_overlay_panel = _make_panel()
-	_overlay_panel.custom_minimum_size = Vector2(560, 0)
+	_overlay_panel.custom_minimum_size = Vector2(540, 0)
 	center.add_child(_overlay_panel)
 	var box := VBoxContainer.new()
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -160,7 +176,7 @@ func _build_overlay() -> void:
 	_overlay_panel.add_child(box)
 	_overlay_title = Label.new()
 	_overlay_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_overlay_title.add_theme_font_size_override("font_size", 96)
+	_overlay_title.add_theme_font_size_override("font_size", 76)
 	_overlay_title.add_theme_color_override("font_outline_color", Color(0.1, 0.02, 0.05))
 	_overlay_title.add_theme_constant_override("outline_size", 18)
 	box.add_child(_overlay_title)
@@ -168,20 +184,14 @@ func _build_overlay() -> void:
 	_overlay_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_overlay_subtitle.add_theme_font_size_override("font_size", 36)
 	box.add_child(_overlay_subtitle)
-	_retry_button = Button.new()
-	_retry_button.text = "もう一度戦う"
-	_retry_button.custom_minimum_size = Vector2(0, 104)
-	_retry_button.focus_mode = Control.FOCUS_NONE
-	_retry_button.add_theme_font_size_override("font_size", 40)
-	_retry_button.add_theme_color_override("font_color", Color(0.1, 0.05, 0.02))
-	_retry_button.add_theme_color_override("font_hover_color", Color(0.1, 0.05, 0.02))
-	_retry_button.add_theme_color_override("font_pressed_color", Color(0.1, 0.05, 0.02))
-	_retry_button.add_theme_stylebox_override("normal", _button_style(Color(1.0, 0.78, 0.25)))
-	_retry_button.add_theme_stylebox_override("hover", _button_style(Color(1.0, 0.85, 0.4)))
-	_retry_button.add_theme_stylebox_override("pressed", _button_style(Color(0.9, 0.62, 0.15)))
-	_retry_button.add_theme_stylebox_override("disabled", _button_style(Color(0.5, 0.47, 0.44)))
-	_retry_button.pressed.connect(_on_retry_pressed)
-	box.add_child(_retry_button)
+	_overlay_detail = Label.new()
+	_overlay_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_overlay_detail.add_theme_font_size_override("font_size", 28)
+	_overlay_detail.add_theme_color_override("font_color", Color(0.6, 1.0, 0.65))
+	box.add_child(_overlay_detail)
+	_overlay_buttons = VBoxContainer.new()
+	_overlay_buttons.add_theme_constant_override("separation", 16)
+	box.add_child(_overlay_buttons)
 
 
 func _make_panel() -> PanelContainer:
@@ -275,19 +285,39 @@ func show_dice_result(value: int, is_critical: bool) -> void:
 		_sub_result_label.rotation = 0.0)
 
 
-func show_victory(enemy_name: String) -> void:
-	_show_overlay("VICTORY!", "%s DEFEATED" % enemy_name, Color(1, 0.85, 0.25))
+## ステージクリア画面。
+func show_stage_clear(enemy_name: String, old_max_hp: int, new_max_hp: int) -> void:
+	_show_overlay("STAGE CLEAR!", "%s DEFEATED" % enemy_name, Color(1, 0.85, 0.25),
+		"LEVEL UP!  最大HP %d → %d" % [old_max_hp, new_max_hp],
+		[{"text": "次のステージへ", "action": &"next"}])
 
 
-func show_defeat() -> void:
-	_show_overlay("DEFEAT", "YOU WERE DEFEATED", Color(0.75, 0.2, 0.25))
+## 全ステージクリア画面。
+func show_game_clear(enemy_name: String) -> void:
+	_show_overlay("GAME CLEAR!", "%s DEFEATED" % enemy_name, Color(1, 0.85, 0.25),
+		"全ステージ制覇！おめでとう！",
+		[{"text": "もう一度遊ぶ", "action": &"restart"}])
 
 
-func _show_overlay(title: String, subtitle: String, color: Color) -> void:
+## 敗北画面。ステージ 2 以降では「最初から」も選べる。
+func show_defeat(can_restart_from_first: bool) -> void:
+	var buttons: Array = [{"text": "このステージに再挑戦" if can_restart_from_first else "もう一度戦う", "action": &"retry"}]
+	if can_restart_from_first:
+		buttons.append({"text": "最初から", "action": &"restart", "secondary": true})
+	_show_overlay("DEFEAT", "YOU WERE DEFEATED", Color(0.75, 0.2, 0.25), "", buttons)
+
+
+func _show_overlay(title: String, subtitle: String, color: Color, detail: String, buttons: Array) -> void:
 	_overlay_title.text = title
 	_overlay_title.add_theme_color_override("font_color", color)
 	_overlay_subtitle.text = subtitle
-	_retry_button.disabled = false
+	_overlay_detail.text = detail
+	_overlay_detail.visible = detail != ""
+	for child in _overlay_buttons.get_children():
+		_overlay_buttons.remove_child(child)
+		child.queue_free()
+	for def in buttons:
+		_overlay_buttons.add_child(_make_overlay_button(def["text"], def["action"], def.get("secondary", false)))
 	_overlay.visible = true
 	_overlay.modulate.a = 0.0
 	_overlay_panel.pivot_offset = _overlay_panel.size * 0.5
@@ -295,6 +325,71 @@ func _show_overlay(title: String, subtitle: String, color: Color) -> void:
 	var t := create_tween().set_parallel(true)
 	t.tween_property(_overlay, "modulate:a", 1.0, 0.3)
 	t.tween_property(_overlay_panel, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+func _make_overlay_button(text: String, action: StringName, secondary: bool) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(0, 88 if secondary else 104)
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 32 if secondary else 40)
+	var base := Color(0.62, 0.58, 0.7) if secondary else Color(1.0, 0.78, 0.25)
+	for state_name in ["font_color", "font_hover_color", "font_pressed_color"]:
+		b.add_theme_color_override(state_name, Color(0.1, 0.05, 0.02))
+	b.add_theme_stylebox_override("normal", _button_style(base))
+	b.add_theme_stylebox_override("hover", _button_style(base.lightened(0.15)))
+	b.add_theme_stylebox_override("pressed", _button_style(base.darkened(0.12)))
+	b.add_theme_stylebox_override("disabled", _button_style(Color(0.5, 0.47, 0.44)))
+	b.set_meta(&"action", action)
+	b.pressed.connect(_on_overlay_button_pressed.bind(action))
+	return b
+
+
+## 結果画面のボタンを取得（テスト・キーボード操作用）。
+func get_overlay_button(action: StringName) -> Button:
+	for child in _overlay_buttons.get_children():
+		if child is Button and child.get_meta(&"action") == action:
+			return child
+	return null
+
+
+## 結果画面の一番上のボタンを押す（Enter / Space 用）。
+func press_primary_overlay_button() -> void:
+	if not _overlay.visible or _overlay_buttons.get_child_count() == 0:
+		return
+	var b := _overlay_buttons.get_child(0) as Button
+	if b and not b.disabled:
+		b.pressed.emit()
+
+
+func set_stage_info(text: String, is_boss: bool) -> void:
+	_stage_tag.text = text
+	_stage_tag.add_theme_color_override("font_color", Color(1, 0.3, 0.3) if is_boss else Color(1, 0.55, 0.55))
+
+
+## ステージ開始の演出。終わるまで await できる。
+func play_stage_intro(title: String, subtitle: String, is_boss: bool) -> void:
+	if _banner_tween and _banner_tween.is_valid():
+		_banner_tween.kill()
+	_banner_title.text = title
+	_banner_title.add_theme_color_override("font_color", Color(1, 0.3, 0.25) if is_boss else Color(1, 0.9, 0.55))
+	_banner_subtitle.text = subtitle
+	for l in [_banner_title, _banner_subtitle]:
+		l.visible = true
+		l.modulate.a = 0.0
+		l.pivot_offset = l.size * 0.5
+		l.scale = Vector2.ONE * (1.8 if l == _banner_title else 1.0)
+	_banner_tween = create_tween()
+	_banner_tween.tween_property(_banner_title, "modulate:a", 1.0, 0.2)
+	_banner_tween.parallel().tween_property(_banner_title, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_banner_tween.tween_property(_banner_subtitle, "modulate:a", 1.0, 0.25)
+	_banner_tween.tween_interval(1.1 if is_boss else 0.8)
+	_banner_tween.tween_property(_banner_title, "modulate:a", 0.0, 0.3)
+	_banner_tween.parallel().tween_property(_banner_subtitle, "modulate:a", 0.0, 0.3)
+	_banner_tween.tween_callback(func() -> void:
+		_banner_title.visible = false
+		_banner_subtitle.visible = false)
+	await _banner_tween.finished
 
 
 func hide_overlay() -> void:
@@ -307,6 +402,10 @@ func is_overlay_visible() -> bool:
 
 func reset_view() -> void:
 	hide_overlay()
+	if _banner_tween and _banner_tween.is_valid():
+		_banner_tween.kill()
+	_banner_title.visible = false
+	_banner_subtitle.visible = false
 	if _result_tween and _result_tween.is_valid():
 		_result_tween.kill()
 	_result_label.visible = false
@@ -314,9 +413,13 @@ func reset_view() -> void:
 	_message_label.text = ""
 
 
-func _on_retry_pressed() -> void:
-	# 連打で二重にリトライしないよう即座に無効化
-	if _retry_button.disabled:
-		return
-	_retry_button.disabled = true
-	retry_pressed.emit()
+func _on_overlay_button_pressed(action: StringName) -> void:
+	# 連打で二重に実行しないよう、押したら全ボタンを無効化
+	for child in _overlay_buttons.get_children():
+		if child is Button:
+			if child.disabled:
+				return
+	for child in _overlay_buttons.get_children():
+		if child is Button:
+			child.disabled = true
+	overlay_action.emit(action)

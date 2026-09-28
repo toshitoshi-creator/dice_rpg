@@ -27,6 +27,7 @@ func _run() -> void:
 	await _test_dice_face_mapping()
 	await _test_damage_table()
 	await _test_dice_physics_rolls()
+	await _test_enemy_models()
 
 	var scene: PackedScene = load(MAIN_SCENE)
 	manager = scene.instantiate() as BattleManager
@@ -35,10 +36,9 @@ func _run() -> void:
 
 	await _test_launch()
 	await _test_full_turn()
-	await _test_victory()
-	await _test_retry_after_victory()
-	await _test_defeat()
-	await _test_retry_after_defeat()
+	await _test_defeat_stage1()
+	await _test_stage_progression()
+	await _test_defeat_later_stage()
 
 	print("")
 	print("=== RESULT: %d passed, %d failed ===" % [passed, failed])
@@ -65,6 +65,9 @@ func _seconds(s: float) -> void:
 
 
 func _wait_state(target: BattleState.State, timeout: float) -> bool:
+	# 画面描画ありの実行（--shots）はソフトウェア描画で遅くなるため待ち時間を延ばす
+	if take_shots:
+		timeout *= 3.0
 	var start := Time.get_ticks_msec()
 	while manager.state != target:
 		if Time.get_ticks_msec() - start > timeout * 1000.0:
@@ -194,11 +197,64 @@ func _test_dice_physics_rolls() -> void:
 
 
 # ------------------------------------------------------------------
+func _press_overlay(action: StringName) -> bool:
+	var t0 := Time.get_ticks_msec()
+	while not manager.ui.is_overlay_visible() and Time.get_ticks_msec() - t0 < 6000:
+		await process_frame
+	var b := manager.ui.get_overlay_button(action)
+	if b == null:
+		return false
+	b.pressed.emit()
+	b.pressed.emit() # 連打
+	await _frames(3)
+	return true
+
+
+## 実際にサイコロを振って、敵の HP を 1 にしてから倒す（時間短縮）。
+func _win_current_stage(expected_state: BattleState.State) -> bool:
+	if not await _wait_state(BattleState.State.PLAYER_TURN, 8.0):
+		return false
+	manager.enemy.hp = 1
+	manager.request_roll()
+	return await _wait_state(expected_state, 25.0)
+
+
+func _test_enemy_models() -> void:
+	print("\n[Unit] Enemy models & stages")
+	var ok := true
+	for id in EnemyDatabase.ENEMIES:
+		var e := EnemyActor.new()
+		e.setup(EnemyDatabase.get_enemy(id))
+		root.add_child(e)
+		var meshes := e.find_children("*", "MeshInstance3D", true, false).size()
+		if meshes < 5:
+			ok = false
+			printerr("    %s has only %d meshes" % [id, meshes])
+		e.queue_free()
+	await _frames(2)
+	_check(ok, "every enemy type builds its 3D model")
+	_check(StageDatabase.count() == 4, "4 stages")
+	var boss := StageDatabase.get_stage(3)
+	_check(boss.is_boss and boss.enemy_id == &"dragon", "stage 4 is the DRAGON boss")
+	var weak := true
+	for i in 3:
+		var st := StageDatabase.get_stage(i)
+		if st.is_boss or not EnemyDatabase.has_enemy(st.enemy_id):
+			weak = false
+	_check(weak, "stages 1-3 are normal enemies")
+
+
 func _test_launch() -> void:
 	print("\n[Test 1] Launch")
-	_check(manager.state == BattleState.State.PLAYER_TURN, "battle starts in PLAYER_TURN")
-	_check(manager.enemy.hp == 100 and manager.enemy.display_name == "SLIME", "SLIME with 100 HP is present")
-	_check(manager.player.hp == 100, "player has 100 HP")
+	_check(manager.state == BattleState.State.SETUP, "battle starts with the stage intro (SETUP)")
+	manager.request_roll()
+	_check(manager.state == BattleState.State.SETUP, "cannot roll during the stage intro")
+	await _seconds(0.5)
+	await _shot("00_stage_intro.png")
+	var ok := await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+	_check(ok, "intro ends -> PLAYER_TURN")
+	_check(manager.stage.index == 0 and manager.enemy.display_name == "SLIME" and manager.enemy.hp == 100, "STAGE 1: SLIME with 100 HP")
+	_check(manager.player.hp == 100 and manager.player.max_hp == 100, "player has 100 HP")
 	_check(not manager.ui.roll_button.disabled, "roll button is enabled")
 	await _seconds(0.6)
 	await _shot("01_start.png")
@@ -211,7 +267,6 @@ func _test_full_turn() -> void:
 	manager.ui.roll_button.pressed.emit()
 	_check(manager.state == BattleState.State.ROLLING, "pressing the button starts ROLLING")
 	_check(manager.ui.roll_button.disabled, "button disabled while rolling")
-	# 連打
 	for i in 5:
 		manager.ui.roll_button.pressed.emit()
 		manager.request_roll()
@@ -245,62 +300,95 @@ func _test_full_turn() -> void:
 	_check(not manager.ui.roll_button.disabled, "button re-enabled on player turn")
 
 
-func _test_victory() -> void:
-	print("\n[Test 8] Victory")
-	# 実際にサイコロを振って倒す。時間短縮のため敵の HP を 1 にしておく。
-	manager.enemy.hp = 1
-	manager.request_roll()
-	var ok := await _wait_state(BattleState.State.VICTORY, 20.0)
-	_check(ok, "enemy defeated -> VICTORY")
-	_check(manager.enemy.hp == 0, "enemy HP is 0")
-	manager.request_roll()
-	_check(manager.state == BattleState.State.VICTORY, "cannot roll after victory")
-	var t0 := Time.get_ticks_msec()
-	while not manager.ui.is_overlay_visible() and Time.get_ticks_msec() - t0 < 5000:
-		await process_frame
-	_check(manager.ui.is_overlay_visible(), "VICTORY overlay with retry button shown")
-	_check(not manager.enemy.visible, "enemy faded out")
-	await _seconds(0.6)
-	await _shot("05_victory.png")
-
-
-func _test_retry_after_victory() -> void:
-	print("\n[Test 10a] Retry after victory")
-	manager.ui._retry_button.pressed.emit()
-	manager.ui._retry_button.pressed.emit()
-	await _frames(3)
-	_check(manager.state == BattleState.State.PLAYER_TURN, "retry returns to PLAYER_TURN")
-	_check(manager.enemy.hp == 100 and manager.enemy.visible, "enemy restored to 100 HP")
-	_check(manager.player.hp == 100, "player restored to 100 HP")
-	_check(not manager.ui.is_overlay_visible(), "overlay hidden")
-
-
-func _test_defeat() -> void:
-	print("\n[Test 9] Defeat")
-	# 敵の攻撃力を上げて 1 ターンで負けるようにする
+func _test_defeat_stage1() -> void:
+	print("\n[Test 9] Defeat (stage 1) -> retry")
 	manager.enemy.attack = 999
 	manager.request_roll()
 	var ok := await _wait_state(BattleState.State.DEFEAT, 25.0)
-	_check(ok, "player HP 0 -> DEFEAT")
-	_check(manager.player.hp == 0, "player HP is 0")
+	_check(ok and manager.player.hp == 0, "player HP 0 -> DEFEAT")
 	manager.request_roll()
 	_check(manager.state == BattleState.State.DEFEAT, "cannot roll after defeat")
 	var t0 := Time.get_ticks_msec()
 	while not manager.ui.is_overlay_visible() and Time.get_ticks_msec() - t0 < 5000:
 		await process_frame
-	_check(manager.ui.is_overlay_visible(), "DEFEAT overlay shown")
+	_check(manager.ui.get_overlay_button(&"retry") != null and manager.ui.get_overlay_button(&"restart") == null, "stage 1 defeat offers retry only")
 	await _seconds(0.6)
-	await _shot("06_defeat.png")
-
-
-func _test_retry_after_defeat() -> void:
-	print("\n[Test 10b] Retry after defeat")
-	manager.ui._retry_button.pressed.emit()
-	await _frames(3)
-	_check(manager.state == BattleState.State.PLAYER_TURN, "retry returns to PLAYER_TURN")
-	_check(manager.enemy.hp == 100 and manager.enemy.attack == 10, "fresh enemy with normal stats")
+	await _shot("05_defeat.png")
+	_check(await _press_overlay(&"retry"), "press retry")
+	_check(manager.stage.index == 0 and manager.enemy.hp == 100 and manager.enemy.attack == 10, "retry restarts stage 1 with a fresh SLIME")
 	_check(manager.player.hp == 100 and manager.player.visible, "player restored")
-	# リトライ後も普通に 1 ターン遊べること
+
+
+func _test_stage_progression() -> void:
+	print("\n[Test 8/10] Stage 1 -> 2 -> 3 -> BOSS -> GAME CLEAR")
+	var names := ["SLIME", "GOBLIN", "SKELETON", "DRAGON"]
+	for i in 3:
+		_check(manager.stage.index == i and manager.enemy.display_name == names[i], "stage %d: %s" % [i + 1, names[i]])
+		_check(manager.player.max_hp == 100 + 20 * i and manager.player.hp == manager.player.max_hp, "player max HP %d, full HP at stage start" % manager.player.max_hp)
+		var ok := await _win_current_stage(BattleState.State.VICTORY)
+		_check(ok, "stage %d cleared (VICTORY)" % [i + 1])
+		manager.request_roll()
+		_check(manager.state == BattleState.State.VICTORY, "cannot roll after stage clear")
+		var t0 := Time.get_ticks_msec()
+		while not manager.ui.is_overlay_visible() and Time.get_ticks_msec() - t0 < 5000:
+			await process_frame
+		_check(not manager.enemy.visible, "enemy faded out")
+		if i == 0:
+			await _seconds(0.6)
+			await _shot("06_stage_clear.png")
+		_check(await _press_overlay(&"next"), "press 'next stage'")
+		if i == 1:
+			await _seconds(0.3)
+			await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+			await _seconds(0.3)
+			await _shot("07_stage3_skeleton.png")
+		if i == 0:
+			await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+			await _seconds(0.3)
+			await _shot("07_stage2_goblin.png")
+
+	_check(manager.stage.is_boss and manager.enemy.display_name == "DRAGON", "stage 4: DRAGON boss")
+	_check(manager.enemy.max_hp == 220, "boss has 220 HP")
+	_check(manager.player.max_hp == 160 and manager.player.hp == 160, "player max HP 160 at the boss")
+	await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+	await _seconds(0.3)
+	await _shot("08_boss.png")
+	# ボスとは実際に 1 ターン戦う
+	var boss_hp := manager.enemy.hp
 	manager.request_roll()
 	var ok := await _wait_state(BattleState.State.PLAYER_TURN, 25.0)
-	_check(ok and manager.enemy.hp < 100 and manager.player.hp == 90, "a full turn works after retry")
+	_check(ok and manager.enemy.hp < boss_hp and manager.player.hp == 160 - 14, "a full turn against the boss works (boss hits for 14)")
+	await _shot("09_boss_fight.png")
+	ok = await _win_current_stage(BattleState.State.GAME_CLEAR)
+	_check(ok, "boss defeated -> GAME_CLEAR")
+	var t0 := Time.get_ticks_msec()
+	while not manager.ui.is_overlay_visible() and Time.get_ticks_msec() - t0 < 5000:
+		await process_frame
+	_check(manager.ui.get_overlay_button(&"restart") != null and manager.ui.get_overlay_button(&"next") == null, "GAME CLEAR screen offers 'play again'")
+	await _seconds(0.6)
+	await _shot("10_game_clear.png")
+	_check(await _press_overlay(&"restart"), "press 'play again'")
+	_check(manager.stage.index == 0 and manager.enemy.display_name == "SLIME" and manager.player.max_hp == 100, "back to STAGE 1 with base stats")
+
+
+func _test_defeat_later_stage() -> void:
+	print("\n[Test 9b] Defeat on stage 2 -> retry same stage / restart from stage 1")
+	manager.start_stage(1)
+	await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+	manager.enemy.attack = 999
+	manager.request_roll()
+	var ok := await _wait_state(BattleState.State.DEFEAT, 25.0)
+	_check(ok, "DEFEAT on stage 2")
+	_check(await _press_overlay(&"retry"), "press retry")
+	_check(manager.stage.index == 1 and manager.enemy.display_name == "GOBLIN" and manager.player.max_hp == 120, "retry keeps stage 2 (GOBLIN, max HP 120)")
+	await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+	manager.enemy.attack = 999
+	manager.request_roll()
+	ok = await _wait_state(BattleState.State.DEFEAT, 25.0)
+	_check(ok, "DEFEAT again")
+	_check(await _press_overlay(&"restart"), "press 'restart from stage 1'")
+	_check(manager.stage.index == 0 and manager.enemy.display_name == "SLIME" and manager.player.max_hp == 100, "restart goes back to STAGE 1")
+	ok = await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
+	manager.request_roll()
+	ok = ok and await _wait_state(BattleState.State.PLAYER_TURN, 25.0)
+	_check(ok and manager.enemy.hp < 100 and manager.player.hp == 90, "a full turn works after restart")
