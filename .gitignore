@@ -1,0 +1,11 @@
+# Godot 4
+.godot/
+/android/
+export_presets.cfg
+
+# Test screenshots
+/tests/output/
+
+# OS
+.DS_Store
+Thumbs.db
