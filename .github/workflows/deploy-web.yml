@@ -1,0 +1,105 @@
+name: Build & Deploy Web (Cloudflare Pages)
+
+# push するたびに: テスト → Web 書き出し → Cloudflare Pages へ公開
+# 必要な Secrets（Settings → Secrets and variables → Actions）:
+#   CLOUDFLARE_API_TOKEN   … 権限「Account / Cloudflare Pages / Edit」を持つ API トークン
+#   CLOUDFLARE_ACCOUNT_ID  … Cloudflare ダッシュボードのアカウント ID
+# Secrets が未設定の場合はビルドとテストだけ行い、成果物（web.zip）を Actions に保存する。
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.3"
+  CF_PROJECT_NAME: dice-battle
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot + web export templates
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-web-v1
+
+      - name: Install Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          BASE=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          mkdir -p ~/godot && cd ~/godot
+          curl -fsSL -o godot.zip "$BASE/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip && mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 godot && rm godot.zip
+          curl -fsSL -o templates.tpz "$BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q templates.tpz 'templates/web_*' 'templates/version.txt'
+          DEST=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p "$DEST" && mv templates/* "$DEST/" && rm -rf templates templates.tpz
+
+      - name: Import project
+        run: ~/godot/godot --headless --path . --import
+
+      - name: Run tests
+        run: |
+          set +e
+          ~/godot/godot --headless --path . -s res://tests/run_tests.gd > test.log 2>&1
+          code=$?
+          grep -v -e 'Parameter "m" is null' -e 'mesh_storage.h' test.log
+          exit $code
+
+      - name: Export Web build
+        run: |
+          set -euo pipefail
+          mkdir -p build/web
+          ~/godot/godot --headless --path . --export-release "Web" build/web/index.html
+          python3 tools/web_postprocess.py build/web
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: build/web
+
+      - name: Create Cloudflare Pages project (first run only)
+        if: env.HAS_CLOUDFLARE == 'true'
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@3 pages project create "$CF_PROJECT_NAME" --production-branch="${{ github.event.repository.default_branch }}"
+
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        if: env.HAS_CLOUDFLARE == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy build/web --project-name=${{ env.CF_PROJECT_NAME }} --branch=${{ github.ref_name }} --commit-dirty=true
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## DICE BATTLE Web build"
+            if [ "${HAS_CLOUDFLARE}" = "true" ]; then
+              echo "- デプロイ URL: ${{ steps.deploy.outputs.deployment-url }}"
+              echo "- 本番 URL（デフォルトブランチへの push 時）: Cloudflare ダッシュボード → Workers & Pages → ${CF_PROJECT_NAME}"
+            else
+              echo "- Cloudflare の Secrets が未設定のため、デプロイはスキップしました（成果物 web は Artifacts からダウンロード可能）"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

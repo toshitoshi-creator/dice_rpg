@@ -16,6 +16,29 @@ Godot 4.3 以降 / GDScript。外部アセット不要（モデル・エフェ�
 |---|---|---|---|---|---|---|
 | ダメージ | 5 | 10 | 15 | 20 | 30 | 50 (CRITICAL) |
 
+## スマホ / ブラウザで遊ぶ（Cloudflare Pages）
+
+`.github/workflows/deploy-web.yml` が push のたびに「テスト → Web 書き出し → Cloudflare Pages へ公開」を行います。
+
+1. Cloudflare で API トークンを作成（テンプレート無しの Custom token、権限 **Account → Cloudflare Pages → Edit**）
+2. GitHub リポジトリの Settings → Secrets and variables → Actions に登録
+   - `CLOUDFLARE_API_TOKEN` … 上のトークン
+   - `CLOUDFLARE_ACCOUNT_ID` … Cloudflare ダッシュボード右側に表示されるアカウント ID
+3. push する（または Actions タブから手動実行）と、`dice-battle` プロジェクトが自動作成されて公開される。URL は Actions の実行結果（Summary）に表示される
+
+補足:
+- Web 版はマルチスレッド無しで書き出すので、特別な HTTP ヘッダー無しで iPhone（Safari 16.4+）/ Android で動く
+- Cloudflare Pages は 1 ファイル 25 MiB までなので、`tools/web_postprocess.py` が `index.wasm`（約 35MB）を gzip（約 8MB）し、ブラウザ内で展開するローダーを差し込む
+- 日本語はシステムフォントに頼らず、同梱の Noto Sans JP（必要な文字だけのサブセット、`assets/fonts/`、SIL OFL）で表示する。UI に新しい漢字を追加したら `tools/make_font_subset.py` でフォントを作り直す
+
+ローカルで Web 版を試す:
+
+```bash
+godot --headless --path . --export-release "Web" build/web/index.html
+python3 tools/web_postprocess.py build/web
+python3 -m http.server -d build/web 8000   # http://localhost:8000
+```
+
 ## 仕組み
 
 - サイコロは `RigidBody3D`。ランダムな位置・向き・速度・回転で投げ、床と見えない壁に当たって転がる
@@ -52,6 +75,10 @@ scripts/
 ├── world/battle_field.gd        空・ライト・床・サイコロ台・背景
 └── audio/sound_manager.gd       効果音（ファイルが無ければ合成音で代用）
 tests/run_tests.gd               自動統合テスト
+tools/web_postprocess.py         Web 書き出し後の Cloudflare 向け処理
+tools/make_font_subset.py        同梱日本語フォントの生成
+assets/fonts/                    Noto Sans JP サブセット + ライセンス
+.github/workflows/deploy-web.yml CI（テスト・Web 書き出し・Cloudflare Pages 公開）
 ```
 
 ## 調整・拡張ポイント

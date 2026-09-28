@@ -37,14 +37,9 @@ func _ready() -> void:
 
 
 func _make_theme() -> Theme:
+	# フォントは project.godot の gui/theme/custom_font（同梱の Noto Sans JP）を使う。
+	# Web 版ではシステムフォントが使えないため、必ず同梱フォントで表示する。
 	var theme := Theme.new()
-	var font := SystemFont.new()
-	font.font_names = PackedStringArray([
-		"Noto Sans CJK JP", "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
-		"Yu Gothic UI", "Yu Gothic", "Meiryo", "Droid Sans Fallback", "sans-serif",
-	])
-	font.font_weight = 800
-	theme.default_font = font
 	theme.default_font_size = 28
 	theme.set_color("font_color", "Label", Color(1, 0.97, 0.9))
 	return theme
