@@ -5,7 +5,7 @@ extends Node
 ## res://assets/sounds/<name>.(ogg|wav|mp3) があればそれを再生する。
 ## ファイルがまだ無い場合は、簡単な合成音で代用する（エラーにはしない）。
 ## 使用する名前: dice_roll, dice_hit, attack, damage, critical, enemy_attack,
-##               enemy_die, victory, defeat, button, step
+##               enemy_die, victory, defeat, button, step, powerup, special
 
 const SOUND_DIR := "res://assets/sounds/"
 const EXTENSIONS := ["ogg", "wav", "mp3"]
@@ -94,6 +94,15 @@ func _synthesize(sound_name: StringName) -> AudioStreamWAV:
 				var notes := [392.0, 349.23, 311.13, 261.63]
 				var idx := mini(int(t / 0.25), notes.size() - 1)
 				return sin(t * TAU * notes[idx]) * 0.35 * (1.0 - t))
+		&"powerup":
+			return _make(0.6, func(t: float, _i: int) -> float:
+				var f := lerpf(200.0, 900.0, t / 0.6)
+				return (sin(t * TAU * f) * 0.4 + sin(t * TAU * f * 1.5) * 0.2) * minf(t * 8.0, 1.0) * (1.0 - t / 0.6))
+		&"special":
+			return _make(0.8, func(t: float, _i: int) -> float:
+				var chord := sin(t * TAU * 523.25) + sin(t * TAU * 659.25) + sin(t * TAU * 783.99) + sin(t * TAU * 1046.5) * 0.6
+				var hit := (randf() * 2.0 - 1.0) * exp(-t * 18.0)
+				return (chord * 0.12 + hit * 0.5) * exp(-t * 2.2))
 		&"step":
 			return _make(0.07, func(t: float, _i: int) -> float:
 				return ((randf() * 2.0 - 1.0) * 0.4 + sin(t * TAU * 90.0) * 0.6) * exp(-t * 55.0))

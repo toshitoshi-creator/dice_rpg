@@ -28,11 +28,14 @@ var is_marching := false
 
 ## 次のステージへ進む演出の長さ（秒）
 const MARCH_DURATION := 2.6
+## この攻撃がスペシャル技によるものか
+var special_active := false
 
 ## リトライで古いコルーチンが動き続けないようにするための世代番号
 var _battle_id := 0
 var _actors_root: Node3D
 var _fx_root: Node3D
+var _portrait: HeroPortrait
 
 
 func _ready() -> void:
@@ -66,6 +69,11 @@ func _ready() -> void:
 	ui.name = "BattleUI"
 	add_child(ui)
 	ui.roll_pressed.connect(request_roll)
+	ui.special_pressed.connect(request_special)
+
+	_portrait = HeroPortrait.new()
+	_portrait.name = "HeroPortrait"
+	add_child(_portrait)
 	ui.overlay_action.connect(_on_overlay_action)
 
 	start_stage(0)
@@ -94,6 +102,9 @@ func start_battle() -> void:
 	var id := _battle_id
 	stage = progress.current_stage()
 	is_marching = false
+	special_active = false
+	progress.stage_start_gauge = progress.special_gauge
+	dice.restore_normal_faces()
 	field.apply_theme(stage.theme)
 	_spawn_actors()
 	dice.visible = true
@@ -127,8 +138,10 @@ func _on_overlay_action(action: StringName) -> void:
 			progress.advance()
 			_march_to_next_stage()
 		&"retry":
+			progress.special_gauge = progress.stage_start_gauge
 			start_battle()
 		&"restart":
+			progress.reset()
 			start_stage(0)
 
 
@@ -188,7 +201,12 @@ func _spawn_actors() -> void:
 func _set_state(new_state: BattleState.State) -> void:
 	state = new_state
 	ui.set_roll_enabled(BattleState.can_roll(state))
+	_update_special_ui()
 	state_changed.emit(state)
+
+
+func _update_special_ui() -> void:
+	ui.update_special(progress.special_gauge, progress.is_special_ready(), BattleState.can_roll(state))
 
 
 # ------------------------------------------------------------------
@@ -202,8 +220,61 @@ func request_roll() -> void:
 	_run_player_turn(_battle_id)
 
 
+## スペシャル技。ゲージが満タンのプレイヤーのターンだけ使える。
+func request_special() -> void:
+	if not BattleState.can_roll(state) or not progress.is_special_ready():
+		return
+	_set_state(BattleState.State.ROLLING)
+	_run_special(_battle_id)
+
+
+func _run_special(id: int) -> void:
+	var weapon := progress.weapon()
+	var color: Color = weapon.get("color", Color(1.0, 0.8, 0.3))
+	progress.use_special()
+	special_active = true
+	_update_special_ui()
+	ui.show_message("")
+	# 1. 主人公に光が集まる
+	camera.focus_player(0.4)
+	sound.play(&"powerup")
+	SpecialAura.spawn(_fx_root, player.position, color)
+	player.flash(color, 1.2)
+	_portrait.start()
+	await _wait(0.55)
+	if id != _battle_id:
+		return
+	# 2. カットイン
+	sound.play(&"special")
+	camera.shake(0.4)
+	await ui.play_special_cutin(weapon["special_name"] + "！", weapon["special_desc"], _portrait.get_texture(), color)
+	_portrait.stop()
+	if id != _battle_id:
+		return
+	# 3. 武器ごとの効果
+	await _activate_special(weapon, color)
+	if id != _battle_id:
+		return
+	_run_player_turn(id)
+
+
+## 武器のスペシャル技の効果。種類を増やすときはここに追加する。
+func _activate_special(weapon: Dictionary, color: Color) -> void:
+	match weapon.get("special_type", &""):
+		&"dice_faces":
+			camera.focus_dice(0.3)
+			var faces: Array[int] = []
+			faces.assign(weapon["special_faces"])
+			dice.set_face_values(faces, true)
+			HitEffect.spawn(_fx_root, dice.global_position, color, 1.8)
+			sound.play(&"critical")
+			ui.show_message("サイコロが 4・5・6 だけになった！")
+			await dice.play_result_highlight(color)
+			await _wait(0.5)
+
+
 func _run_player_turn(id: int) -> void:
-	ui.show_message("サイコロを振った！")
+	ui.show_message("スペシャル技で サイコロを振った！" if special_active else "サイコロを振った！")
 	camera.focus_dice()
 	sound.play(&"dice_roll")
 	dice.roll()
@@ -235,7 +306,13 @@ func _run_player_turn(id: int) -> void:
 	await player.lunge_to(enemy.position, 0.62)
 	if id != _battle_id:
 		return
+	var enemy_hp_before := enemy.hp
 	_apply_damage(enemy, attack_result, Vector3(0, 0, -1))
+	if not special_active:
+		progress.charge_on_attack(enemy_hp_before - enemy.hp, enemy.max_hp)
+	special_active = false
+	dice.restore_normal_faces()
+	_update_special_ui()
 	player.return_home()
 	await enemy.play_hit(Vector3(0, 0, -1), 0.8 if attack_result.is_critical else 0.5)
 	if id != _battle_id:
@@ -267,7 +344,10 @@ func _run_enemy_turn(id: int) -> void:
 	if id != _battle_id:
 		return
 	var result := damage_calculator.calculate_enemy_attack(enemy, player)
+	var player_hp_before := player.hp
 	_apply_damage(player, result, Vector3(0, 0, 1))
+	progress.charge_on_hurt(player_hp_before - player.hp, player.max_hp)
+	_update_special_ui()
 	enemy.return_home()
 	await player.play_hit(Vector3(0, 0, 1), 0.45)
 	if id != _battle_id:
@@ -291,7 +371,11 @@ func _apply_damage(target: BattleActor, result: AttackResult, knock_dir: Vector3
 	target.take_damage(result.amount)
 	var is_enemy := target == enemy
 	var fx_color := Color(1.0, 0.75, 0.2) if result.is_critical else (Color(1.0, 0.95, 0.8) if is_enemy else Color(1.0, 0.3, 0.25))
-	HitEffect.spawn(_fx_root, target.get_hit_point() - knock_dir * 0.6, fx_color, 1.5 if result.is_critical else 1.0)
+	var power := 1.5 if result.is_critical else 1.0
+	if special_active and is_enemy:
+		fx_color = Color(1.0, 0.8, 0.3)
+		power = 2.2
+	HitEffect.spawn(_fx_root, target.get_hit_point() - knock_dir * 0.6, fx_color, power)
 	var text := "-%d" % result.amount
 	var popup_color := Color(1.0, 0.85, 0.2) if result.is_critical else (Color(1, 1, 1) if is_enemy else Color(1.0, 0.4, 0.35))
 	DamagePopup.spawn(_fx_root, target.get_hit_point() + Vector3(0, 1.0, 0), text, popup_color, result.is_critical)

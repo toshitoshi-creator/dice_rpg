@@ -49,6 +49,12 @@ var _last_impact_ms := 0
 var _visual: Node3D
 var _face_labels: Array[Label3D] = []
 var _highlight_tween: Tween
+var _body_mat: StandardMaterial3D
+var _edge_mat: StandardMaterial3D
+var _underlines: Array[MeshInstance3D] = []
+## 標準の出目（スペシャル技のあとに戻すため）
+var _normal_faces: Array[int] = []
+var is_special := false
 
 
 func _ready() -> void:
@@ -95,6 +101,7 @@ func _build_visual() -> void:
 	mat.rim = 0.3
 	mesh_instance.material_override = mat
 	_visual.add_child(mesh_instance)
+	_body_mat = mat
 
 	# 角を丸く見せるための少し小さい面取りフレーム（エッジを暗く見せる）
 	var edge := MeshInstance3D.new()
@@ -105,6 +112,7 @@ func _build_visual() -> void:
 	edge_mat.albedo_color = Color(0.75, 0.68, 0.55)
 	edge_mat.cull_mode = BaseMaterial3D.CULL_FRONT
 	edge.material_override = edge_mat
+	_edge_mat = edge_mat
 	edge.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_visual.add_child(edge)
 
@@ -126,17 +134,50 @@ func _build_visual() -> void:
 		_visual.add_child(label)
 		_face_labels.append(label)
 		# 6 と 9 を見間違えないよう、6 には下線を付ける
-		if face_values[i] == 6:
-			var bar := MeshInstance3D.new()
-			var bar_mesh := BoxMesh.new()
-			bar_mesh.size = Vector3(size * 0.28, size * 0.035, 0.004)
-			bar.mesh = bar_mesh
-			var bar_mat := StandardMaterial3D.new()
-			bar_mat.albedo_color = number_color
-			bar.material_override = bar_mat
-			bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			bar.position = Vector3(0, -size * 0.3, 0)
-			label.add_child(bar)
+		var bar := MeshInstance3D.new()
+		var bar_mesh := BoxMesh.new()
+		bar_mesh.size = Vector3(size * 0.28, size * 0.035, 0.004)
+		bar.mesh = bar_mesh
+		var bar_mat := StandardMaterial3D.new()
+		bar_mat.albedo_color = number_color
+		bar.material_override = bar_mat
+		bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		bar.position = Vector3(0, -size * 0.3, 0)
+		bar.visible = face_values[i] == 6
+		label.add_child(bar)
+		_underlines.append(bar)
+	_normal_faces = face_values.duplicate()
+
+
+## 6 面の数字を変える（スペシャル技用）。special = true なら金色に光るサイコロになる。
+func set_face_values(values: Array[int], special: bool = false) -> void:
+	face_values = values.duplicate()
+	is_special = special
+	for i in _face_labels.size():
+		var v := face_values[i]
+		var label := _face_labels[i]
+		label.text = str(v)
+		label.modulate = Color(0.45, 0.12, 0.02) if special else (one_color if v == 1 else number_color)
+		_underlines[i].visible = v == 6
+		(_underlines[i].material_override as StandardMaterial3D).albedo_color = label.modulate
+	if special:
+		_body_mat.albedo_color = Color(1.0, 0.8, 0.3)
+		_body_mat.metallic = 0.6
+		_body_mat.emission_enabled = true
+		_body_mat.emission = Color(1.0, 0.65, 0.15)
+		_body_mat.emission_energy_multiplier = 0.8
+		_edge_mat.albedo_color = Color(0.9, 0.5, 0.1)
+	else:
+		_body_mat.albedo_color = body_color
+		_body_mat.metallic = 0.0
+		_body_mat.emission_enabled = false
+		_edge_mat.albedo_color = Color(0.75, 0.68, 0.55)
+
+
+## 標準のサイコロに戻す。
+func restore_normal_faces() -> void:
+	if is_special:
+		set_face_values(_normal_faces, false)
 
 
 # ------------------------------------------------------------------

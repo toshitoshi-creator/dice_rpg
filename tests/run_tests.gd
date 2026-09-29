@@ -29,6 +29,7 @@ func _run() -> void:
 	await _test_dice_physics_rolls()
 	await _test_bestiary()
 	await _test_custom_models()
+	_test_special_gauge_math()
 
 	var scene: PackedScene = load(MAIN_SCENE)
 	manager = scene.instantiate() as BattleManager
@@ -37,6 +38,7 @@ func _run() -> void:
 
 	await _test_launch()
 	await _test_full_turn()
+	await _test_special()
 	await _test_defeat_stage1()
 	await _test_stage_progression()
 	await _test_defeat_later_stage()
@@ -323,6 +325,62 @@ func _test_custom_models() -> void:
 	await _frames(2)
 
 
+func _test_special_gauge_math() -> void:
+	print("\n[Unit] Special gauge")
+	var p := GameProgress.new()
+	# チャプター 1 の雑魚 3 体を倒しきったとき（ダメージを受けないとしても）
+	for i in 3:
+		var e := EnemyDatabase.get_enemy(StageDatabase.get_stage(i).enemy_no)
+		p.charge_on_attack(e.max_hp, e.max_hp)
+	_check(p.special_gauge > 90.0 and not p.is_special_ready(), "after the 3 tutorial mobs the gauge is %d%% (almost full)" % p.special_gauge)
+	p.charge_on_hurt(12, 160)
+	p.charge_on_attack(15, 135)
+	_check(p.is_special_ready(), "it fills up early in the boss fight")
+	p.use_special()
+	_check(p.special_gauge == 0.0, "using the special empties the gauge")
+	var w := WeaponDatabase.get_weapon(p.weapon_id)
+	var faces: Array = w["special_faces"]
+	_check(w["special_type"] == &"dice_faces" and faces.size() == 6 and faces.all(func(v): return v >= 4 and v <= 6), "default sword (%s): special '%s' makes every face 4-6" % [w["name"], w["special_name"]])
+
+
+func _test_special() -> void:
+	print("\n[Test] Special move")
+	_make_enemy_tough()
+	await _wait_state(BattleState.State.PLAYER_TURN, 5.0)
+	_check(manager.ui.special_button.disabled, "special button is disabled while the gauge is not full")
+	manager.request_special()
+	_check(manager.state == BattleState.State.PLAYER_TURN, "cannot use the special without a full gauge")
+	manager.progress.special_gauge = GameProgress.SPECIAL_MAX
+	manager._update_special_ui()
+	_check(not manager.ui.special_button.disabled, "special button becomes available when the gauge is full")
+	manager.ui.special_button.pressed.emit()
+	manager.ui.special_button.pressed.emit()
+	manager.request_roll()
+	_check(manager.state == BattleState.State.ROLLING and manager.special_active, "special started (mashing does not start it twice)")
+	_check(manager.progress.special_gauge == 0.0, "gauge is used up")
+	await _seconds(0.9)
+	_check(manager.ui.is_cutin_playing(), "flashy cut-in is playing")
+	await _shot("11_special_cutin.png")
+	var t0 := Time.get_ticks_msec()
+	while not manager.dice.is_rolling and Time.get_ticks_msec() - t0 < 12000 * (3 if take_shots else 1):
+		await process_frame
+	var faces_ok := manager.dice.is_special
+	for v in manager.dice.face_values:
+		if v < 4:
+			faces_ok = false
+	_check(faces_ok, "the golden die only has 4, 5 and 6 (%s)" % str(manager.dice.face_values))
+	await _seconds(0.3)
+	await _shot("12_special_roll.png")
+	var ok := await _wait_state(BattleState.State.RESULT, 15.0)
+	_check(ok and manager.last_dice_result.value >= 4, "special roll result is %d (4 or more)" % manager.last_dice_result.value)
+	_check(manager.last_dice_result.value == manager.dice.get_top_value(), "result still matches the physical top face")
+	ok = await _wait_state(BattleState.State.ENEMY_TURN, 10.0)
+	_check(ok and not manager.dice.is_special and manager.dice.face_values == [1, 6, 2, 5, 3, 4], "die returns to normal after the special attack")
+	_check(manager.progress.special_gauge == 0.0, "the special attack itself does not charge the gauge")
+	await _wait_state(BattleState.State.PLAYER_TURN, 10.0)
+	_check(manager.progress.special_gauge > 0.0, "taking damage charges the gauge a little")
+
+
 func _launch_intro_done() -> bool:
 	return await _wait_state(BattleState.State.PLAYER_TURN, 6.0)
 
@@ -404,8 +462,10 @@ func _test_defeat_stage1() -> void:
 	_check(manager.ui.get_overlay_button(&"retry") != null and manager.ui.get_overlay_button(&"restart") == null, "stage 1 defeat offers retry only")
 	await _seconds(0.6)
 	await _shot("05_defeat.png")
+	var start_gauge := manager.progress.stage_start_gauge
 	_check(await _press_overlay(&"retry"), "press retry")
 	_check(manager.stage.index == 0 and manager.enemy.hp == 41 and manager.enemy.attack == 5, "retry restarts stage 1 with a fresh スライム")
+	_check(is_equal_approx(manager.progress.special_gauge, start_gauge), "retry puts the SP gauge back to its value at the stage start")
 	_check(manager.player.hp == 100 and manager.player.visible, "player restored")
 
 

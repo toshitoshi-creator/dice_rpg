@@ -3,12 +3,14 @@ extends CanvasLayer
 ## バトル画面の 2D UI。ゲームロジックは持たず、表示とボタン入力の通知だけを行う。
 
 signal roll_pressed
+signal special_pressed
 ## 結果画面のボタン（&"next" = 次のステージ, &"retry" = 再挑戦, &"restart" = 最初から）
 signal overlay_action(action: StringName)
 
 var enemy_bar: HpBar
 var player_bar: HpBar
 var roll_button: Button
+var special_button: Button
 
 var _root: Control
 var _message_label: Label
@@ -27,6 +29,12 @@ var _result_tween: Tween
 var _button_tween: Tween
 var _banner_tween: Tween
 var _road: RoadMap
+var _sp_bar: ProgressBar
+var _sp_fill: StyleBoxFlat
+var _sp_label: Label
+var _sp_tween: Tween
+var _sp_ready := false
+var _cutin: SpecialCutIn
 var _road_tween: Tween
 
 
@@ -42,6 +50,8 @@ func _ready() -> void:
 	_build_bottom()
 	_build_center()
 	_build_overlay()
+	_cutin = SpecialCutIn.new()
+	_root.add_child(_cutin)
 
 
 func _make_theme() -> Theme:
@@ -90,6 +100,47 @@ func _build_bottom() -> void:
 	player_bar = HpBar.new("PLAYER", Color(0.3, 0.85, 0.45))
 	box.add_child(player_bar)
 
+	# スペシャルゲージ
+	var sp_row := HBoxContainer.new()
+	sp_row.add_theme_constant_override("separation", 10)
+	box.add_child(sp_row)
+	var sp_tag := Label.new()
+	sp_tag.text = "SP"
+	sp_tag.add_theme_font_size_override("font_size", 24)
+	sp_tag.add_theme_color_override("font_color", Color(1.0, 0.8, 0.3))
+	sp_tag.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	sp_tag.add_theme_constant_override("outline_size", 6)
+	sp_row.add_child(sp_tag)
+	_sp_bar = ProgressBar.new()
+	_sp_bar.show_percentage = false
+	_sp_bar.max_value = 100
+	_sp_bar.step = 0.01
+	_sp_bar.custom_minimum_size = Vector2(0, 20)
+	_sp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var sp_bg := StyleBoxFlat.new()
+	sp_bg.bg_color = Color(0.08, 0.06, 0.1, 0.9)
+	sp_bg.border_color = Color(0.9, 0.75, 0.4)
+	sp_bg.set_border_width_all(2)
+	sp_bg.set_corner_radius_all(6)
+	_sp_fill = StyleBoxFlat.new()
+	_sp_fill.bg_color = Color(1.0, 0.72, 0.2)
+	_sp_fill.set_corner_radius_all(5)
+	_sp_fill.set_expand_margin_all(-2)
+	_sp_bar.add_theme_stylebox_override("background", sp_bg)
+	_sp_bar.add_theme_stylebox_override("fill", _sp_fill)
+	sp_row.add_child(_sp_bar)
+	_sp_label = Label.new()
+	_sp_label.text = "0%"
+	_sp_label.custom_minimum_size = Vector2(70, 0)
+	_sp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_sp_label.add_theme_font_size_override("font_size", 22)
+	sp_row.add_child(_sp_label)
+
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 12)
+	box.add_child(buttons)
+
 	roll_button = Button.new()
 	roll_button.text = "サイコロを振る"
 	roll_button.custom_minimum_size = Vector2(0, 112)
@@ -105,7 +156,27 @@ func _build_bottom() -> void:
 	roll_button.add_theme_stylebox_override("disabled", _button_style(Color(0.5, 0.47, 0.44)))
 	roll_button.pressed.connect(func() -> void: roll_pressed.emit())
 	roll_button.resized.connect(func() -> void: roll_button.pivot_offset = roll_button.size * 0.5)
-	box.add_child(roll_button)
+	roll_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	buttons.add_child(roll_button)
+
+	special_button = Button.new()
+	special_button.text = "SP\n0%"
+	special_button.custom_minimum_size = Vector2(190, 112)
+	special_button.focus_mode = Control.FOCUS_NONE
+	special_button.add_theme_font_size_override("font_size", 28)
+	for state_name in ["font_color", "font_hover_color", "font_pressed_color"]:
+		special_button.add_theme_color_override(state_name, Color(1, 1, 1))
+	special_button.add_theme_color_override("font_outline_color", Color(0.45, 0.05, 0.05))
+	special_button.add_theme_constant_override("outline_size", 10)
+	special_button.add_theme_color_override("font_disabled_color", Color(0.7, 0.66, 0.6))
+	special_button.add_theme_stylebox_override("normal", _button_style(Color(0.95, 0.3, 0.15)))
+	special_button.add_theme_stylebox_override("hover", _button_style(Color(1.0, 0.4, 0.2)))
+	special_button.add_theme_stylebox_override("pressed", _button_style(Color(0.8, 0.2, 0.1)))
+	special_button.add_theme_stylebox_override("disabled", _button_style(Color(0.33, 0.3, 0.36)))
+	special_button.disabled = true
+	special_button.pressed.connect(func() -> void: special_pressed.emit())
+	special_button.resized.connect(func() -> void: special_button.pivot_offset = special_button.size * 0.5)
+	buttons.add_child(special_button)
 
 
 func _build_center() -> void:
@@ -258,6 +329,41 @@ func set_roll_enabled(enabled: bool) -> void:
 		_button_tween = create_tween().set_loops()
 		_button_tween.tween_property(roll_button, "scale", Vector2(1.03, 1.03), 0.5).set_trans(Tween.TRANS_SINE)
 		_button_tween.tween_property(roll_button, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_SINE)
+
+
+## スペシャルゲージとボタンの表示を更新する。
+## value: 0〜100、ready: 満タン、can_use: 今押せる（プレイヤーのターン中）。
+func update_special(value: float, full: bool, can_use: bool) -> void:
+	var t := create_tween()
+	t.tween_property(_sp_bar, "value", value, 0.4).set_trans(Tween.TRANS_SINE)
+	_sp_label.text = "%d%%" % floori(value)
+	special_button.disabled = not (full and can_use)
+	special_button.text = "スペシャル！" if full else "SP\n%d%%" % floori(value)
+	if full != _sp_ready:
+		_sp_ready = full
+		if _sp_tween and _sp_tween.is_valid():
+			_sp_tween.kill()
+		special_button.scale = Vector2.ONE
+		special_button.modulate = Color.WHITE
+		_sp_fill.bg_color = Color(1.0, 0.72, 0.2)
+		if full:
+			# 満タン: ボタンが金色に明滅して脈動する
+			_sp_tween = create_tween().set_loops()
+			_sp_tween.tween_property(special_button, "scale", Vector2(1.08, 1.08), 0.35).set_trans(Tween.TRANS_SINE)
+			_sp_tween.parallel().tween_property(special_button, "modulate", Color(1.4, 1.25, 0.8), 0.35)
+			_sp_tween.parallel().tween_property(_sp_fill, "bg_color", Color(1.0, 0.95, 0.6), 0.35)
+			_sp_tween.tween_property(special_button, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_SINE)
+			_sp_tween.parallel().tween_property(special_button, "modulate", Color.WHITE, 0.35)
+			_sp_tween.parallel().tween_property(_sp_fill, "bg_color", Color(1.0, 0.6, 0.15), 0.35)
+
+
+## スペシャル技のカットイン。終わるまで await できる。
+func play_special_cutin(title: String, subtitle: String, portrait: Texture2D, color: Color) -> void:
+	await _cutin.play(title, subtitle, portrait, color)
+
+
+func is_cutin_playing() -> bool:
+	return _cutin.is_playing()
 
 
 func show_message(text: String) -> void:
