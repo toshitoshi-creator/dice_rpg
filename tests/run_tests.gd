@@ -354,6 +354,19 @@ func _test_equipment_data() -> void:
 		if EquipmentDatabase.items(slot).size() < 3 or not p.is_owned(slot, p.equipped[slot]):
 			ok = false
 	_check(ok, "3 slots (weapon / shield / armor), each with 3+ items and a starting item equipped")
+	var icons_ok := true
+	for slot in EquipmentDatabase.SLOTS:
+		for id in EquipmentDatabase.items(slot):
+			if EquipmentDatabase.get_icon(slot, id) == null:
+				icons_ok = false
+				printerr("    no icon: %s" % id)
+	_check(icons_ok, "every item has an icon")
+	var sets_ok := true
+	for icon_set in EquipmentDatabase.ICON_SETS:
+		for n in range(1, EquipmentDatabase.ICON_SETS[icon_set] + 1):
+			if not ResourceLoader.exists(EquipmentDatabase.icon_path(icon_set, n)):
+				sets_ok = false
+	_check(sets_ok, "all 200 icons (weapons / swords / armors / shields x 50) are available")
 	_check(p.attack_bonus() == 0 and p.defense_bonus() == 0 and p.hp_bonus() == 0 and p.weapon_id == WeaponDatabase.DEFAULT_WEAPON, "starting equipment adds nothing (base stats)")
 	_check(not p.equip(&"shield", &"steel_shield"), "cannot equip an item you do not have")
 	var got := p.claim_stage_rewards(0)

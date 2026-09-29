@@ -3,6 +3,7 @@ extends RefCounted
 ## 武器の一覧。武器ごとにスペシャル技が決まる。
 ##
 ## atk: 攻撃のダメージに足される値
+## icon: アイコン（assets/icons/ の中の "セット/番号"。一覧は docs/ICONS.md）
 ## unlock: 手に入る条件（-1 = 最初から持っている, 0 以上 = そのステージ（0 = STAGE 1）をクリアすると手に入る）
 ## special_type（スペシャル技の種類）:
 ##   &"dice_faces"    … サイコロの 6 面の数字を special_faces に変えて振る
@@ -15,6 +16,7 @@ const DEFAULT_WEAPON := &"brave_sword"
 const WEAPONS := {
 	&"brave_sword": {
 		"name": "ゆうしゃのつるぎ",
+		"icon": "swords/02",
 		"desc": "勇者が旅立ちの日に受けついだ剣。",
 		"atk": 0,
 		"unlock": -1,
@@ -28,6 +30,7 @@ const WEAPONS := {
 	},
 	&"steel_axe": {
 		"name": "はがねのオノ",
+		"icon": "weapons/06",
 		"desc": "重くて強い。ふりまわすには勇気がいる。",
 		"atk": 5,
 		"unlock": 1,
@@ -40,6 +43,7 @@ const WEAPONS := {
 	},
 	&"magic_staff": {
 		"name": "まほうのつえ",
+		"icon": "weapons/15",
 		"desc": "魔力をこめた杖。スペシャル技がたのもしい。",
 		"atk": 2,
 		"unlock": 3,

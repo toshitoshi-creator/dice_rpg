@@ -21,6 +21,7 @@ var _special: Label
 var _tabs: Array[Button] = []
 var _list: VBoxContainer
 var _detail_name: Label
+var _detail_icon: TextureRect
 var _detail_text: Label
 var _close_button: Button
 
@@ -115,8 +116,18 @@ func _ready() -> void:
 	detail.custom_minimum_size = Vector2(0, 150)
 	detail.add_theme_stylebox_override("panel", _box(Color(0.05, 0.04, 0.08, 0.9), Color(0.5, 0.42, 0.3), 2, 12, 16))
 	box.add_child(detail)
+	var drow := HBoxContainer.new()
+	drow.add_theme_constant_override("separation", 14)
+	detail.add_child(drow)
+	_detail_icon = TextureRect.new()
+	_detail_icon.custom_minimum_size = Vector2(110, 110)
+	_detail_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_detail_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_detail_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	drow.add_child(_detail_icon)
 	var dbox := VBoxContainer.new()
-	detail.add_child(dbox)
+	dbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	drow.add_child(dbox)
 	_detail_name = Label.new()
 	_detail_name.add_theme_font_size_override("font_size", 28)
 	_detail_name.add_theme_color_override("font_color", GOLD)
@@ -218,15 +229,22 @@ func _make_card(id: StringName) -> Button:
 	b.custom_minimum_size = Vector2(0, 104)
 	b.focus_mode = Control.FOCUS_NONE
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.icon = EquipmentDatabase.get_icon(_slot, id)
+	b.add_theme_constant_override("icon_max_width", 84)
+	b.add_theme_constant_override("h_separation", 14)
+	if not owned:
+		# まだ持っていない装備は影（シルエット）だけ見せる
+		for state_name in ["icon_normal_color", "icon_hover_color", "icon_pressed_color"]:
+			b.add_theme_color_override(state_name, Color(0, 0, 0, 0.85))
 	b.add_theme_font_size_override("font_size", 28)
 	b.set_meta(&"item_id", id)
 	var line2 := EquipmentDatabase.stat_text(_slot, id)
 	if _slot == EquipmentDatabase.SLOT_WEAPON:
 		line2 += "   SP: " + String(item["special_name"])
 	if owned:
-		b.text = "%s %s\n%s" % ["【E】" if equipped else "　 ", item["name"], line2]
+		b.text = "%s%s\n%s" % ["【E】" if equipped else "", item["name"], line2]
 	else:
-		b.text = "　 ？？？\n%s" % EquipmentDatabase.unlock_text(_slot, id)
+		b.text = "？？？\n%s" % EquipmentDatabase.unlock_text(_slot, id)
 	var bg := Color(0.32, 0.22, 0.08) if equipped else (Color(0.16, 0.13, 0.22) if owned else Color(0.1, 0.1, 0.12))
 	var border := GOLD if equipped else (Color(0.45, 0.4, 0.55) if owned else Color(0.25, 0.25, 0.28))
 	var fg := Color(1, 0.95, 0.8) if owned else Color(0.5, 0.5, 0.55)
@@ -249,6 +267,8 @@ func _on_card_pressed(id: StringName) -> void:
 
 func _show_detail(id: StringName) -> void:
 	var item := EquipmentDatabase.get_item(_slot, id)
+	_detail_icon.texture = EquipmentDatabase.get_icon(_slot, id)
+	_detail_icon.self_modulate = Color.WHITE if _progress.is_owned(_slot, id) else Color(0, 0, 0, 0.85)
 	if not _progress.is_owned(_slot, id):
 		_detail_name.text = "？？？"
 		_detail_text.text = EquipmentDatabase.unlock_text(_slot, id)

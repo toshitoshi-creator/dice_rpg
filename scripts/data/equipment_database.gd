@@ -4,6 +4,7 @@ extends RefCounted
 ##
 ## たて: def = 受けるダメージを減らす値 / よろい: hp = 最大 HP に足される値
 ## unlock: -1 = 最初から持っている, 0 以上 = そのステージ（0 = STAGE 1）をクリアすると手に入る
+## icon: アイコン（assets/icons/ の中の "セット/番号"。セットは weapons / swords / armors / shields、番号は 01〜50）
 
 const SLOT_WEAPON := &"weapon"
 const SLOT_SHIELD := &"shield"
@@ -11,16 +12,20 @@ const SLOT_ARMOR := &"armor"
 const SLOTS: Array[StringName] = [SLOT_WEAPON, SLOT_SHIELD, SLOT_ARMOR]
 const SLOT_NAMES := {SLOT_WEAPON: "ぶき", SLOT_SHIELD: "たて", SLOT_ARMOR: "よろい"}
 
+const ICON_DIR := "res://assets/icons/"
+## アイコンのセットと枚数（art/icon_sheets/ の元画像から tools/slice_icon_sheet.py で作ったもの）
+const ICON_SETS := {&"weapons": 50, &"swords": 50, &"armors": 50, &"shields": 50}
+
 const SHIELDS := {
-	&"trainee_shield": {"name": "みならいのたて", "desc": "旅立ちのときに持たされた小さな盾。", "def": 0, "unlock": -1},
-	&"steel_shield": {"name": "はがねのたて", "desc": "かたい鋼の盾。敵の攻撃を少しふせぐ。", "def": 2, "unlock": 0},
-	&"hero_shield": {"name": "ゆうしゃのたて", "desc": "金の鳥の紋章がきざまれた伝説の盾。", "def": 4, "unlock": 3},
+	&"trainee_shield": {"name": "みならいのたて", "icon": "shields/01", "desc": "旅立ちのときに持たされた小さな盾。", "def": 0, "unlock": -1},
+	&"steel_shield": {"name": "はがねのたて", "icon": "shields/03", "desc": "かたい鋼の盾。敵の攻撃を少しふせぐ。", "def": 2, "unlock": 0},
+	&"hero_shield": {"name": "ゆうしゃのたて", "icon": "shields/02", "desc": "金の鳥の紋章がきざまれた伝説の盾。", "def": 4, "unlock": 3},
 }
 
 const ARMORS := {
-	&"travel_clothes": {"name": "たびびとのふく", "desc": "動きやすい青い服。", "hp": 0, "unlock": -1},
-	&"chain_mail": {"name": "くさりかたびら", "desc": "鎖を編んだよろい。体力が上がる。", "hp": 30, "unlock": 2},
-	&"hero_armor": {"name": "ゆうしゃのよろい", "desc": "勇者だけが着られる光のよろい。", "hp": 60, "unlock": 3},
+	&"travel_clothes": {"name": "たびびとのふく", "icon": "armors/01", "desc": "動きやすい青い服。", "hp": 0, "unlock": -1},
+	&"chain_mail": {"name": "くさりかたびら", "icon": "armors/21", "desc": "鎖を編んだよろい。体力が上がる。", "hp": 30, "unlock": 2},
+	&"hero_armor": {"name": "ゆうしゃのよろい", "icon": "armors/07", "desc": "勇者だけが着られる光のよろい。", "hp": 60, "unlock": 3},
 }
 
 
@@ -67,6 +72,20 @@ static func rewards_for_stage(stage_index: int) -> Array:
 			if int(get_item(slot, id).get("unlock", -1)) == stage_index:
 				result.append([slot, id])
 	return result
+
+
+## アイコン画像のパス（例: icon_path(&"swords", 2) → res://assets/icons/swords/02.png）。
+static func icon_path(icon_set: StringName, number: int) -> String:
+	return "%s%s/%02d.png" % [ICON_DIR, icon_set, number]
+
+
+## 装備のアイコン。未設定・ファイルが無いときは null。
+static func get_icon(slot: StringName, id: StringName) -> Texture2D:
+	var icon := String(get_item(slot, id).get("icon", ""))
+	var path := ICON_DIR + icon + ".png"
+	if icon == "" or not ResourceLoader.exists(path):
+		return null
+	return load(path) as Texture2D
 
 
 ## 手に入れ方の説明（まだ持っていない装備に表示する）。
