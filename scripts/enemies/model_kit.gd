@@ -30,7 +30,7 @@ const DEFAULT_ROLES := {
 
 var palette: Dictionary
 ## 生成したマテリアル（被弾フラッシュ・撃破フェード用に BattleActor が使う）
-var materials: Array[StandardMaterial3D] = []
+var materials: Array[BaseMaterial3D] = []
 ## アニメーションさせる部位
 ##   wings:  Array of [pivot: Node3D, side: float]  … Z 軸回転で羽ばたく
 ##   weapon: Node3D  … X 軸回転で振る

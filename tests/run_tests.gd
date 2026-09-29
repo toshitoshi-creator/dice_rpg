@@ -28,6 +28,7 @@ func _run() -> void:
 	await _test_damage_table()
 	await _test_dice_physics_rolls()
 	await _test_bestiary()
+	await _test_custom_models()
 
 	var scene: PackedScene = load(MAIN_SCENE)
 	manager = scene.instantiate() as BattleManager
@@ -294,6 +295,28 @@ func _test_bestiary() -> void:
 	_check(model_ok, "all 120 models build")
 	_check(size_ok, "all models fit their target size")
 	_check(roles_ok, "no missing palette colors")
+
+
+func _test_custom_models() -> void:
+	print("\n[Unit] Blender (.glb) models")
+	# tests/fixtures の .glb は tools/blender/*.py を Blender で実行して書き出したもの
+	var holder := Node3D.new()
+	root.add_child(holder)
+	var berry := EnemyDatabase.get_enemy(4)
+	var kit := ModelKit.new(berry.palette)
+	var slime := CustomModels.attach("res://tests/fixtures/fixture_slime.glb", holder, kit)
+	_check(slime != null and slime.find_children("*", "MeshInstance3D", true, false).size() >= 8, "slime .glb from make_enemy_slime.py loads")
+	_check(kit._cache.has(&"body") and kit._cache.has(&"body2"), "materials named body / body2 are recolored for %s" % berry.display_name)
+	_check(kit.materials.size() >= 5, "all materials registered for hit flash / fade")
+	var kit2 := ModelKit.new({})
+	var player := CustomModels.attach("res://tests/fixtures/fixture_player.glb", holder, kit2)
+	var weapon: Node3D = kit2.parts.get("weapon")
+	_check(player != null and weapon != null and String(weapon.name).begins_with("Weapon"), "player .glb loads and its Weapon node swings")
+	var size := ModelKit.compute_aabb(slime).size
+	_check(size.x > size.y * 0.5 and ModelKit.compute_aabb(slime).end.y > 0.5, "glb is Y-up after import (height %.2f)" % ModelKit.compute_aabb(slime).end.y)
+	_check(CustomModels.enemy_path(EnemyDatabase.get_enemy(1)) == "" and CustomModels.player_path() == "", "no custom model in assets -> built-in models are used")
+	holder.queue_free()
+	await _frames(2)
 
 
 func _launch_intro_done() -> bool:

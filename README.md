@@ -61,6 +61,11 @@ godot --headless --path . -s res://tools/export_enemy_list.gd                   
 python3 tools/make_font_subset.py NotoSansJP-ExtraBold.ttf                      # 新しい漢字を使ったら
 ```
 
+## Blender で作ったモデルを使う
+
+`assets/models/player.glb`（主人公）や `assets/models/enemies/<種族ID>.glb`（敵）を置くと、そのモデルに差し替わる。
+Blender 用のスクリプト（`tools/blender/`）と手順は [docs/BLENDER_GUIDE.md](docs/BLENDER_GUIDE.md)。
+
 ## スマホ / ブラウザで遊ぶ（Cloudflare Pages）
 
 `.github/workflows/deploy-web.yml` が push のたびに「テスト → Web 書き出し → Cloudflare Pages へ公開」を行います。
@@ -106,6 +111,7 @@ scripts/
 │   ├── dice.gd                  物理サイコロ・出目判定
 │   └── dice_result.gd           出目データ
 ├── actors/
+│   ├── custom_models.gd         .glb モデルへの差し替え
 │   ├── battle_actor.gd          HP・ステータス・被弾/攻撃/撃破アニメの共通基底
 │   ├── player.gd                プレイヤー（剣士モデル）
 │   └── enemy.gd                 敵（EnemyData からモデル生成）
@@ -130,6 +136,8 @@ tests/run_tests.gd               自動統合テスト
 tools/web_postprocess.py         Web 書き出し後の Cloudflare 向け処理
 tools/make_font_subset.py        同梱日本語フォントの生成
 tools/render_bestiary.gd         敵図鑑の確認画像を生成
+tools/blender/                   Blender でモデルを作るスクリプト（主人公・スライム）
+assets/models/                   Blender で作った .glb の置き場所
 tools/export_enemy_list.gd       docs/ENEMY_LIST.md を生成
 docs/                            敵図鑑の一覧と画像
 assets/fonts/                    Noto Sans JP サブセット + ライセンス

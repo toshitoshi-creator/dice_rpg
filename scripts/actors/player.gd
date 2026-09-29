@@ -3,6 +3,11 @@ extends BattleActor
 ## プレイヤー（剣士）。Godot 標準 Mesh の組み合わせで作る簡易モデル。
 
 var _sword_pivot: Node3D
+## 剣の構えの角度と、振る向き（コードのモデルは -Z 向き、Blender のモデルは +Z 向きで作られているため逆になる）
+var _sword_rest := Vector3(-20, 0, 0)
+var _swing_sign := 1.0
+## Blender モデルを使う場合の目標の高さ
+const CUSTOM_HEIGHT := 1.95
 
 
 func _init() -> void:
@@ -14,6 +19,8 @@ func _init() -> void:
 
 
 func _build_model() -> void:
+	if CustomModels.player_path() != "" and _build_custom_model():
+		return
 	var skin := _make_material(Color(0.96, 0.78, 0.62))
 	var tunic := _make_material(Color(0.18, 0.36, 0.78), 0.7)
 	var dark := _make_material(Color(0.16, 0.13, 0.18), 0.8)
@@ -94,6 +101,27 @@ func _build_model() -> void:
 	_sword_pivot.rotation_degrees = Vector3(-20, 0, 0)
 
 
+## assets/models/player.glb を使う。正面が +Z 向きなので 180 度回して敵のほうを向かせる。
+func _build_custom_model() -> bool:
+	var holder := Node3D.new()
+	holder.name = "CustomModel"
+	holder.rotation_degrees = Vector3(0, 180, 0)
+	model.add_child(holder)
+	var kit := ModelKit.new({})
+	if CustomModels.attach(CustomModels.player_path(), holder, kit) == null:
+		holder.queue_free()
+		return false
+	_materials.append_array(kit.materials)
+	var aabb := ModelKit.compute_aabb(holder)
+	var height := maxf(aabb.end.y, 0.05)
+	holder.scale = Vector3.ONE * (CUSTOM_HEIGHT / height)
+	_sword_pivot = kit.parts.get("weapon")
+	if _sword_pivot:
+		_sword_rest = _sword_pivot.rotation_degrees
+		_swing_sign = -1.0
+	return true
+
+
 func _create_idle_tween() -> Tween:
 	var t := create_tween().set_loops()
 	t.tween_property(model, "position:y", 0.05, 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
@@ -104,7 +132,7 @@ func _create_idle_tween() -> Tween:
 func stop_idle() -> void:
 	super.stop_idle()
 	if _sword_pivot:
-		_sword_pivot.rotation_degrees = Vector3(-20, 0, 0)
+		_sword_pivot.rotation_degrees = _sword_rest
 
 
 ## 剣を振りかぶって振り下ろす。
@@ -112,7 +140,7 @@ func _on_strike(duration: float) -> void:
 	if not _sword_pivot:
 		return
 	var t := create_tween()
-	t.tween_property(_sword_pivot, "rotation_degrees:x", 60.0, duration * 0.5).set_ease(Tween.EASE_OUT)
-	t.tween_property(_sword_pivot, "rotation_degrees:x", -110.0, duration * 0.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	t.tween_property(_sword_pivot, "rotation_degrees:x", _sword_rest.x + 80.0 * _swing_sign, duration * 0.5).set_ease(Tween.EASE_OUT)
+	t.tween_property(_sword_pivot, "rotation_degrees:x", _sword_rest.x - 90.0 * _swing_sign, duration * 0.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 	t.tween_interval(0.2)
-	t.tween_property(_sword_pivot, "rotation_degrees:x", -20.0, 0.3).set_trans(Tween.TRANS_SINE)
+	t.tween_property(_sword_pivot, "rotation_degrees:x", _sword_rest.x, 0.3).set_trans(Tween.TRANS_SINE)

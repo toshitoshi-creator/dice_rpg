@@ -17,7 +17,7 @@ signal died
 var hp: int = 100
 var model: Node3D
 
-var _materials: Array[StandardMaterial3D] = []
+var _materials: Array[BaseMaterial3D] = []
 ## マテリアルの元の発光・透明度（フラッシュ・フェード後に戻すため）
 var _material_bases: Dictionary = {}
 var _flash_tween: Tween

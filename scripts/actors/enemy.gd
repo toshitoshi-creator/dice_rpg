@@ -48,7 +48,9 @@ func _build_model() -> void:
 	_body.name = "Body"
 	model.add_child(_body)
 	var kit := ModelKit.new(data.palette if data else {})
-	EnemyModels.build(data.model_type if data else &"slime", kit, _body)
+	var custom := CustomModels.enemy_path(data)
+	if custom == "" or CustomModels.attach(custom, _body, kit) == null:
+		EnemyModels.build(data.model_type if data else &"slime", kit, _body)
 	_materials.append_array(kit.materials)
 	_parts = kit.parts
 	# 目標サイズに合わせて拡大縮小
