@@ -8,8 +8,8 @@ extends Node3D
 signal state_changed(new_state: BattleState.State)
 signal turn_finished
 signal stage_started(stage: StageData)
-## 「ホームへ」が押された（GameApp がホーム画面に戻す）
-signal exit_requested
+## バトルをやめる（to = &"home": ホームへ, &"stages": ステージ選択へ）。GameApp が画面を切りかえる
+signal exit_requested(to: StringName)
 
 var state: BattleState.State = BattleState.State.SETUP
 var damage_calculator := DamageCalculator.new()
@@ -17,7 +17,10 @@ var progress := GameProgress.new()
 var stage: StageData
 
 var field: BattleField
+## 1 こ目のサイコロ（dice_list[0]）
 var dice: Dice
+## 振るサイコロ全部（レベル 10 ごとに 1 こ増える）
+var dice_list: Array[Dice] = []
 var player: PlayerActor
 var enemy: EnemyActor
 var ui: BattleUI
@@ -32,6 +35,8 @@ var is_marching := false
 const MARCH_DURATION := 2.6
 ## この攻撃がスペシャル技によるものか
 var special_active := false
+## さいごにクリアしたときのごほうび（GameProgress.claim_stage_clear() の結果）
+var last_reward: Dictionary = {}
 
 ## リトライで古いコルーチンが動き続けないようにするための世代番号
 var _battle_id := 0
@@ -67,6 +72,7 @@ func _ready() -> void:
 	dice.rest_position = field.dice_rest_position
 	add_child(dice)
 	dice.impact.connect(_on_dice_impact)
+	dice_list = [dice]
 
 	camera = BattleCamera.new()
 	camera.name = "Camera"
@@ -87,7 +93,7 @@ func _ready() -> void:
 
 	ui.overlay_action.connect(_on_overlay_action)
 
-	start_stage(0)
+	start_stage(progress.stage_index)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -118,15 +124,13 @@ func start_battle() -> void:
 	special_active = false
 	_special_multiplier = 1.0
 	progress.stage_start_gauge = progress.special_gauge
-	dice.restore_normal_faces()
 	field.apply_theme(stage.theme)
 	_spawn_actors()
-	dice.visible = true
-	dice.reset_to_rest()
+	_sync_dice()
 	camera.snap_default()
 	ui.reset_view()
 	ui.bind_actors(player, enemy)
-	ui.set_stage_info("CHAPTER %d  %s  (%d / %d)" % [stage.chapter, stage.title, stage.index + 1, progress.stage_count()], stage.is_boss)
+	ui.set_stage_info("STAGE %s  %s" % [stage.title, StageDatabase.chapter_name(stage.chapter)], stage.is_boss)
 	last_dice_result = null
 	last_attack = null
 	_set_state(BattleState.State.SETUP)
@@ -154,11 +158,8 @@ func _on_overlay_action(action: StringName) -> void:
 		&"retry":
 			progress.special_gauge = progress.stage_start_gauge
 			start_battle()
-		&"restart":
-			progress.reset()
-			start_stage(0)
-		&"home":
-			exit_requested.emit()
+		&"stages", &"home":
+			exit_requested.emit(action)
 
 
 ## 敵を倒したあと、プレイヤーが次のステージへ歩いて進む演出。
@@ -174,7 +175,7 @@ func _march_to_next_stage() -> void:
 	ui.show_message("つぎのステージへ すすもう！")
 	ui.show_road(from_index, progress.stage_count())
 	ui.advance_road(stage.index, MARCH_DURATION)
-	dice.visible = false
+	_set_dice_visible(false)
 	camera.focus_default()
 
 	# 次の敵を先のアリーナに置いておき、地面と一緒に近づいてくるようにする
@@ -203,9 +204,10 @@ func _spawn_actors() -> void:
 
 	player = PlayerActor.new()
 	player.name = "Player"
-	player.setup_stats("PLAYER", progress.total_max_hp(), 1, progress.defense_bonus())
+	player.setup_stats("ゆうしゃ  Lv%d" % progress.level, progress.total_max_hp(), 1, 0)
 	player.attack_bonus = progress.attack_bonus()
-	dice.apply_dice(progress.dice())
+	player.power = progress.power()
+	player.damage_cut = progress.damage_cut()
 	player.position = field.player_spot
 	_actors_root.add_child(player)
 
@@ -283,11 +285,12 @@ func _activate_special(weapon: Dictionary, color: Color) -> void:
 			camera.focus_dice(0.3)
 			var faces: Array[int] = []
 			faces.assign(weapon["special_faces"])
-			dice.set_face_values(faces, true)
-			HitEffect.spawn(_fx_root, dice.global_position, color, 1.8)
+			for d in dice_list:
+				d.set_face_values(faces, true)
+				HitEffect.spawn(_fx_root, d.global_position, color, 1.8)
 			sound.play(&"critical")
 			ui.show_message(weapon.get("special_message", ""))
-			await dice.play_result_highlight(color)
+			await _highlight_dice(color)
 			await _wait(0.5)
 		&"heal":
 			var amount := roundi(player.max_hp * float(weapon.get("special_heal", 0.3)))
@@ -310,9 +313,8 @@ func _run_player_turn(id: int) -> void:
 	ui.show_message("スペシャル技で サイコロを振った！" if special_active else "サイコロを振った！")
 	camera.focus_dice()
 	sound.play(&"dice_roll")
-	dice.roll()
-	var roll: DiceResult = await dice.roll_finished
-	if id != _battle_id:
+	var roll := await _roll_all(id)
+	if id != _battle_id or roll == null:
 		return
 	last_dice_result = roll
 
@@ -324,11 +326,14 @@ func _run_player_turn(id: int) -> void:
 		_special_multiplier = 1.0
 	last_attack = attack_result
 	sound.play(&"critical" if attack_result.is_critical else &"button")
-	await dice.play_result_highlight(Color(1, 0.7, 0.1) if attack_result.is_critical else Color(1, 1, 0.6))
+	await _highlight_dice(Color(1, 0.7, 0.1) if attack_result.is_critical else Color(1, 1, 0.6))
 	if id != _battle_id:
 		return
-	ui.show_dice_result(roll.value, attack_result.is_critical)
-	ui.show_message("出目は %d！" % roll.value)
+	ui.show_dice_result(roll.values, attack_result.is_critical)
+	if roll.values.size() > 1:
+		ui.show_message("%s ＝ %d ダメージ！" % [" × ".join(roll.values.map(func(v: int) -> String: return str(v))), attack_result.amount])
+	else:
+		ui.show_message("出目は %d！" % roll.value)
 	if attack_result.is_critical:
 		camera.shake(0.35)
 	await _wait(1.0)
@@ -347,7 +352,8 @@ func _run_player_turn(id: int) -> void:
 	if not special_active:
 		progress.charge_on_attack(enemy_hp_before - enemy.hp, enemy.max_hp)
 	special_active = false
-	dice.restore_normal_faces()
+	for d in dice_list:
+		d.restore_normal_faces()
 	_update_special_ui()
 	player.return_home()
 	await enemy.play_hit(Vector3(0, 0, -1), 0.8 if attack_result.is_critical else 0.5)
@@ -397,7 +403,8 @@ func _run_enemy_turn(id: int) -> void:
 		return
 
 	camera.focus_default()
-	dice.reset_to_rest()
+	for d in dice_list:
+		d.reset_to_rest()
 	_set_state(BattleState.State.PLAYER_TURN)
 	ui.show_message("あなたのターン")
 	turn_finished.emit()
@@ -431,15 +438,21 @@ func _run_victory(id: int) -> void:
 		return
 	camera.focus_default()
 	sound.play(&"victory")
-	var reward := progress.claim_stage_clear()
-	var rewards: Array[String] = ["ジェム +%d" % reward["gems"]]
+	var reward := progress.claim_stage_clear(enemy.data.exp_points)
+	last_reward = reward
+	var rewards: Array[String] = ["EXP +%d" % reward["exp"]]
+	if reward["level"] > reward["level_before"]:
+		rewards.append("LEVEL UP!  Lv%d → Lv%d" % [reward["level_before"], reward["level"]])
+		sound.play(&"powerup")
+	if reward["dice"] > reward["dice_before"]:
+		rewards.append("サイコロが %d こに ふえた！" % reward["dice"])
+	rewards.append("ジェム +%d" % (reward["gems"] - (GameProgress.FIRST_CLEAR_GEMS if reward["first_clear"] else 0)))
 	if reward["first_clear"]:
 		rewards.append("はじめてクリア！ ボーナス +%d" % GameProgress.FIRST_CLEAR_GEMS)
-		sound.play(&"powerup")
 	if is_final:
 		ui.show_game_clear(enemy.display_name, rewards)
 	else:
-		ui.show_stage_clear(enemy.display_name, progress.total_max_hp(), progress.total_max_hp(progress.stage_index + 1), rewards)
+		ui.show_stage_clear(enemy.display_name, rewards)
 
 
 func _run_defeat(id: int) -> void:
@@ -450,7 +463,7 @@ func _run_defeat(id: int) -> void:
 		return
 	camera.focus_default()
 	sound.play(&"defeat")
-	ui.show_defeat(progress.stage_index > 0)
+	ui.show_defeat()
 
 
 # ------------------------------------------------------------------
@@ -466,7 +479,7 @@ func request_exit() -> void:
 	if not can_change_equipment() or ui.is_equipment_open():
 		return
 	sound.play(&"button")
-	exit_requested.emit()
+	exit_requested.emit(&"home")
 
 
 func open_equipment() -> void:
@@ -484,15 +497,82 @@ func change_equipment(slot: StringName, id: StringName) -> void:
 	if player == null:
 		return
 	if slot == EquipmentDatabase.SLOT_DICE and not dice.is_rolling:
-		dice.apply_dice(progress.dice())
+		for d in dice_list:
+			d.apply_dice(progress.dice())
 	player.attack_bonus = progress.attack_bonus()
-	player.defense = progress.defense_bonus()
+	player.damage_cut = progress.damage_cut()
 	var new_max := progress.total_max_hp()
 	if new_max != player.max_hp and not player.is_dead():
 		# 最大 HP が増えた分（減った分）だけ今の HP も増やす（1 は残す）
 		player.hp = clampi(player.hp + new_max - player.max_hp, 1, new_max)
 		player.max_hp = new_max
 		ui.player_bar.set_values(player.hp, player.max_hp)
+
+
+# ------------------------------------------------------------------
+# サイコロ（複数）
+# ------------------------------------------------------------------
+## レベルに合わせてサイコロの数をそろえ、装備しているサイコロの見た目にして定位置へ並べる。
+func _sync_dice() -> void:
+	var count := progress.dice_count()
+	while dice_list.size() < count:
+		var d := Dice.new()
+		d.name = "Dice%d" % (dice_list.size() + 1)
+		add_child(d)
+		d.impact.connect(_on_dice_impact)
+		dice_list.append(d)
+	while dice_list.size() > count:
+		var d: Dice = dice_list.pop_back()
+		remove_child(d)
+		d.queue_free()
+	var rows := ceili(count / 5.0)
+	for i in dice_list.size():
+		var d := dice_list[i]
+		var row := i / 5
+		var in_row := mini(count - row * 5, 5)
+		var col := i % 5
+		d.rest_position = field.dice_rest_position + Vector3((col - (in_row - 1) * 0.5) * 1.1, 0, (row - (rows - 1) * 0.5) * 1.15)
+		d.apply_dice(progress.dice())
+		d.restore_normal_faces()
+		d.visible = true
+		d.reset_to_rest()
+
+
+func _set_dice_visible(value: bool) -> void:
+	for d in dice_list:
+		d.visible = value
+
+
+## 全部のサイコロを投げて、全部止まるまで待つ。
+func _roll_all(id: int) -> DiceResult:
+	var n := dice_list.size()
+	var cols := mini(n, 5)
+	for i in n:
+		# 横に最大 5 こ並べ、うしろの列は少し奥・高いところから（投げた瞬間にぶつからないように）
+		var lane := 0.0 if cols == 1 else lerpf(-2.0, 2.0, (i % 5) / float(cols - 1))
+		var offset := Vector3(lane, 0.9 * (i % 2) + 1.2 * (i / 5), -1.1 * (i / 5))
+		dice_list[i].roll(1.0, offset, 0.8 if n == 1 else 0.08)
+	while true:
+		await get_tree().physics_frame
+		if id != _battle_id:
+			return null
+		var rolling := false
+		for d in dice_list:
+			if d.is_rolling:
+				rolling = true
+		if not rolling:
+			break
+	var values: Array[int] = []
+	for d in dice_list:
+		values.append(d.get_top_value())
+	return DiceResult.from_values(values, dice.dice_type)
+
+
+## 全部のサイコロの上の面を光らせる（終わるまで await できる）。
+func _highlight_dice(color: Color) -> void:
+	for i in range(1, dice_list.size()):
+		dice_list[i].play_result_highlight(color)
+	await dice.play_result_highlight(color)
 
 
 func _on_dice_impact(strength: float) -> void:

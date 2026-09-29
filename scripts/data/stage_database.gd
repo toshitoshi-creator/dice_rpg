@@ -1,31 +1,28 @@
 class_name StageDatabase
 extends RefCounted
-## ステージ構成。
-## チャプター 1「はじまりの草原」はチュートリアル: 図鑑の No.1〜3（いちばん弱い雑魚）と
-## ボスの中でいちばん弱い No.10 スライムキングと戦う。
-## 今後チャプターを増やすときは、CHAPTERS に同じ形でステージを追加する
-## （そのチャプターの敵は EnemyDatabase.chapter_enemies(c) で取得できる）。
+## ステージ構成。10 チャプター × 10 ステージ（1-1 〜 10-10）。
+##
+## チャプター c のステージ:
+##   c-1 〜 c-9 … そのチャプターの雑魚 9 体（図鑑の B+1 〜 B+9。B = (c-1)×12）
+##   c-10       … ボス（図鑑の B+10）
+## 強さはステージが進むほどなめらかに上がる（数式は Balance）。
+## ステージの見た目（空の色）は THEMES、名前はチャプターのエリア名（scripts/enemies/chapter_XX.gd の AREA）。
 
-const CHAPTERS := [
-	{
-		"title": "CHAPTER 1",
-		"stages": [
-			{"title": "STAGE 1", "area_name": "はじまりの草原", "enemy_no": 1, "theme": &"day"},
-			{"title": "STAGE 2", "area_name": "キノコの小道", "enemy_no": 2, "theme": &"day"},
-			{"title": "STAGE 3", "area_name": "花畑の丘", "enemy_no": 3, "theme": &"dusk"},
-			{"title": "BOSS", "area_name": "スライムの王座", "enemy_no": 10, "theme": &"boss", "is_boss": true},
-		],
-	},
-]
+const CHAPTER_COUNT := 10
+const STAGES_PER_CHAPTER := Balance.STAGES_PER_CHAPTER
 
-## 遊べるチャプターの数（CHAPTERS に書いてある分）。それ以降は「じゅんびちゅう」
+## チャプターの空の色（ボスステージは &"boss"）。7〜9 ステージ目は夕方にする（昼のチャプターのみ）
+const THEMES := [&"day", &"day", &"day", &"night", &"night", &"day", &"dusk", &"day", &"night", &"night"]
+
+
+## 遊べるチャプターの数。
 static func playable_chapters() -> int:
-	return CHAPTERS.size()
+	return CHAPTER_COUNT
 
 
 ## チャプター c（1〜）のステージが用意されているか（前のチャプターをクリアしたかは GameProgress で見る）。
 static func is_playable(c: int) -> bool:
-	return c >= 1 and c <= CHAPTERS.size()
+	return c >= 1 and c <= CHAPTER_COUNT
 
 
 ## チャプターの名前（エリア名。敵図鑑のチャプターと同じ）
@@ -36,21 +33,31 @@ static func chapter_name(c: int) -> String:
 	return scripts[c - 1].AREA
 
 
-static func _stages(chapter: int) -> Array:
-	return CHAPTERS[clampi(chapter - 1, 0, CHAPTERS.size() - 1)]["stages"]
+static func count(_chapter: int = 1) -> int:
+	return STAGES_PER_CHAPTER
 
 
-static func count(chapter: int = 1) -> int:
-	return _stages(chapter).size()
-
-
+## ステージ index（0 = c-1）のデータ。
 static func get_stage(index: int, chapter: int = 1) -> StageData:
-	var stages := _stages(chapter)
-	var i := clampi(index, 0, stages.size() - 1)
-	var entry: Dictionary = stages[i]
+	var c := clampi(chapter, 1, CHAPTER_COUNT)
+	var i := clampi(index, 0, STAGES_PER_CHAPTER - 1)
+	var s := i + 1
 	var stage := StageData.new()
 	stage.index = i
-	stage.chapter = clampi(chapter, 1, CHAPTERS.size())
-	for prop in entry:
-		stage.set(prop, entry[prop])
+	stage.chapter = c
+	stage.is_boss = s == STAGES_PER_CHAPTER
+	stage.title = "%d-%d" % [c, s]
+	stage.area_name = chapter_name(c) + ("  BOSS" if stage.is_boss else "")
+	stage.enemy_no = (c - 1) * EnemyDatabase.PER_CHAPTER + (10 if stage.is_boss else s)
+	var theme: StringName = THEMES[c - 1]
+	if stage.is_boss:
+		theme = &"boss"
+	elif theme == &"day" and s >= 7:
+		theme = &"dusk"
+	stage.theme = theme
 	return stage
+
+
+## ステージに挑む目安のレベル（整数、切り上げ）
+static func recommended_level(chapter: int, stage: int) -> int:
+	return ceili(Balance.design_level(chapter, stage))

@@ -229,7 +229,9 @@ func get_top_value() -> int:
 # 振る
 # ------------------------------------------------------------------
 ## プレイヤー側から敵側へ向かってサイコロを投げる。
-func roll(throw_strength: float = 1.0) -> void:
+## start_offset: 投げはじめる位置をずらす（サイコロが複数のとき、ぶつからないように）
+## spread: 左右にランダムでずれる幅
+func roll(throw_strength: float = 1.0, start_offset: Vector3 = Vector3.ZERO, spread: float = 0.8) -> void:
 	if is_rolling:
 		return
 	is_rolling = true
@@ -238,10 +240,10 @@ func roll(throw_strength: float = 1.0) -> void:
 	_nudges = 0
 	_clear_highlight()
 
-	var start := Vector3(randf_range(-0.8, 0.8), 1.6, 2.4)
+	var start := Vector3(randf_range(-spread, spread), 1.6, 2.4) + start_offset
 	var start_rot := Basis.from_euler(Vector3(randf() * TAU, randf() * TAU, randf() * TAU))
 	var lin := Vector3(
-		randf_range(-1.8, 1.8),
+		randf_range(-1.8, 1.8) * (spread / 0.8),
 		randf_range(5.5, 7.0),
 		randf_range(-4.2, -3.0)
 	) * throw_strength

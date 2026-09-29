@@ -13,6 +13,10 @@ signal died
 @export var defense: int = 0
 ## 攻撃のダメージに足される値（武器の攻撃力）
 @export var attack_bonus: int = 0
+## ダメージにかける値（プレイヤーのレベル。1.0 = そのまま）
+@export var power: float = 1.0
+## 受けるダメージを減らす割合（たて。0.1 = 10% 減らす）
+@export var damage_cut: float = 0.0
 ## 攻撃時に飛び跳ねる高さ
 @export var attack_jump_height: float = 0.0
 

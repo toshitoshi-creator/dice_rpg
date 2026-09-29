@@ -2,7 +2,7 @@ class_name GameApp
 extends Node
 ## ゲーム全体の画面の切りかえ役（main.tscn のいちばん上）。
 ##
-## ホーム（チャプターをスワイプで選ぶ）→ バトル（BattleManager）
+## ホーム（チャプターをスワイプで選ぶ）→ ステージ選択（c-1〜c-10）→ バトル（BattleManager）
 ##       → そうび（EquipmentScreen）
 ##       → ガチャ（GachaScreen）
 ## プレイヤーのデータ（ジェム・持ち物・装備）は GameProgress 1 つを全画面で使い、save_path に保存する。
@@ -13,6 +13,7 @@ const SAVE_PATH := "user://save.cfg"
 const SCREEN_HOME := &"home"
 const SCREEN_EQUIPMENT := &"equipment"
 const SCREEN_GACHA := &"gacha"
+const SCREEN_STAGES := &"stages"
 const SCREEN_BATTLE := &"battle"
 
 ## false にするとセーブデータを読み書きしない（テスト用。add_child 前に設定する）
@@ -27,6 +28,7 @@ var current_screen: StringName = &""
 var home: HomeScreen
 var equipment: EquipmentScreen
 var gacha_screen: GachaScreen
+var stages: StageSelectScreen
 
 var _menu_layer: CanvasLayer
 var _screens: Dictionary = {}
@@ -54,9 +56,14 @@ func _ready() -> void:
 
 	home = HomeScreen.new()
 	root.add_child(home)
-	home.adventure_pressed.connect(start_chapter)
+	home.adventure_pressed.connect(open_stages)
 	home.equipment_pressed.connect(func() -> void: _go(SCREEN_EQUIPMENT))
 	home.gacha_pressed.connect(func() -> void: _go(SCREEN_GACHA))
+
+	stages = StageSelectScreen.new()
+	root.add_child(stages)
+	stages.back_pressed.connect(func() -> void: _go(SCREEN_HOME))
+	stages.stage_selected.connect(start_stage)
 
 	gacha_screen = GachaScreen.new()
 	root.add_child(gacha_screen)
@@ -71,7 +78,7 @@ func _ready() -> void:
 			sound.play(&"button", 0.0, 1.3))
 	equipment.closed.connect(func() -> void: _go(SCREEN_HOME))
 
-	_screens = {SCREEN_HOME: home, SCREEN_GACHA: gacha_screen, SCREEN_EQUIPMENT: equipment}
+	_screens = {SCREEN_HOME: home, SCREEN_STAGES: stages, SCREEN_GACHA: gacha_screen, SCREEN_EQUIPMENT: equipment}
 	home.refresh(progress, true)
 	show_home()
 
@@ -101,6 +108,8 @@ func _show(screen: StringName) -> void:
 			home.refresh(progress)
 		SCREEN_GACHA:
 			gacha_screen.setup(progress, gacha)
+		SCREEN_STAGES:
+			stages.refresh()
 		SCREEN_EQUIPMENT:
 			equipment.open(progress)
 	if screen != SCREEN_EQUIPMENT and equipment.visible:
@@ -108,20 +117,46 @@ func _show(screen: StringName) -> void:
 	screen_changed.emit(screen)
 
 
-## チャプターのぼうけんを始める（ステージ 1 から）。
-func start_chapter(c: int) -> void:
+## チャプター c のステージ選択を開く。
+func open_stages(c: int) -> void:
 	if not progress.is_chapter_unlocked(c):
 		return
 	sound.play(&"button")
 	_end_battle()
-	progress.start_chapter(c)
+	stages.open(progress, c)
+	_show(SCREEN_STAGES)
+
+
+## ステージ c-s のバトルを始める。
+func start_stage(c: int, s: int) -> void:
+	if not progress.is_stage_unlocked(c, s):
+		return
+	sound.play(&"button")
+	_end_battle()
+	progress.start_stage_at(c, s - 1)
 	battle = BattleManager.new()
 	battle.name = "Battle"
 	battle.use_save = false
 	battle.progress = progress
-	battle.exit_requested.connect(func() -> void: show_home.call_deferred())
+	battle.exit_requested.connect(_on_battle_exit)
 	add_child(battle)
 	_show(SCREEN_BATTLE)
+
+
+## チャプターを 1 ステージ目から始める（テスト・デバッグ用）
+func start_chapter(c: int) -> void:
+	start_stage(c, 1)
+
+
+func _on_battle_exit(to: StringName) -> void:
+	if to == &"stages":
+		(func() -> void:
+			var c := progress.chapter
+			_end_battle()
+			stages.open(progress, c)
+			_show(SCREEN_STAGES)).call_deferred()
+	else:
+		show_home.call_deferred()
 
 
 func _end_battle() -> void:

@@ -21,6 +21,8 @@ extends Resource
 @export var max_hp: int = 40
 @export var attack: int = 5
 @export var defense: int = 0
+## たおしたときにもらえる経験値
+@export var exp_points: int = 0
 
 ## 見た目
 @export var model_type: StringName = &"slime"

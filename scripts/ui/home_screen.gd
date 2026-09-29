@@ -18,6 +18,8 @@ var carousel: ChapterCarousel
 
 var _progress: GameProgress
 var _equip_row: HBoxContainer
+var _level_label: Label
+var _exp_bar: ProgressBar
 
 
 func _init() -> void:
@@ -49,11 +51,26 @@ func _ready() -> void:
 	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	frame.add_child(face)
-	var logo := UIStyle.label("DICE\nBATTLE", 40, UIStyle.GOLD, 12)
-	logo.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	logo.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	logo.add_theme_constant_override("line_spacing", -12)
-	top.add_child(logo)
+	var info := VBoxContainer.new()
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.alignment = BoxContainer.ALIGNMENT_CENTER
+	top.add_child(info)
+	var logo := UIStyle.label("DICE BATTLE", 34, UIStyle.GOLD, 10)
+	info.add_child(logo)
+	_level_label = UIStyle.label("", 26, UIStyle.TEXT, 6)
+	info.add_child(_level_label)
+	_exp_bar = ProgressBar.new()
+	_exp_bar.show_percentage = false
+	_exp_bar.custom_minimum_size = Vector2(0, 12)
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0.05, 0.04, 0.1, 0.9)
+	bg.set_corner_radius_all(6)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color(0.45, 0.85, 1.0)
+	fill.set_corner_radius_all(6)
+	_exp_bar.add_theme_stylebox_override("background", bg)
+	_exp_bar.add_theme_stylebox_override("fill", fill)
+	info.add_child(_exp_bar)
 	gems = GemCounter.new()
 	gems.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(gems)
@@ -94,6 +111,9 @@ func _ready() -> void:
 func refresh(progress: GameProgress, first_time: bool = false) -> void:
 	_progress = progress
 	gems.set_value(progress.gems)
+	_level_label.text = "Lv%d   サイコロ %d こ" % [progress.level, progress.dice_count()]
+	_exp_bar.max_value = progress.exp_to_next()
+	_exp_bar.value = progress.exp_points
 	carousel.refresh(progress, ChapterCarousel.suggested_chapter(progress) if first_time else 0)
 	_update_button()
 	for child in _equip_row.get_children():

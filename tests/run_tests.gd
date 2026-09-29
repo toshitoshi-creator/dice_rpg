@@ -31,6 +31,7 @@ func _run() -> void:
 	await _test_custom_models()
 	_test_special_gauge_math()
 	_test_equipment_data()
+	_test_balance()
 
 	_test_gacha_math()
 	manager = BattleManager.new()
@@ -148,7 +149,7 @@ func _test_damage_table() -> void:
 			ok = false
 	_check(ok, "roll 1..6 -> 5/10/15/20/30/50 damage, 6 is CRITICAL")
 	_check(calc.calculate_enemy_attack(e, p).amount == e.attack, "enemy attack deals its ATK as damage")
-	_check(e.display_name == "スライム" and e.max_hp == 41 and e.attack == 5 and e.defense == 0, "No.1 スライム: HP41 ATK5 DEF0 (tutorial)")
+	_check(e.display_name == "スライム" and e.max_hp == Balance.enemy_hp(1, 1) and e.attack == Balance.enemy_attack(1, 1) and e.defense == 0, "No.1 スライム (1-1): HP%d ATK%d DEF0" % [e.max_hp, e.attack])
 	_check(p.max_hp == 100 and p.attack == 1 and p.defense == 0, "player stats HP100 ATK1 DEF0")
 	p.free()
 	e.free()
@@ -260,22 +261,30 @@ func _test_bestiary() -> void:
 	_check(ids.size() == 120 and names.size() == 120, "ids and names are unique")
 	_check(mobs == 90 and mob_species.size() == 30 and mob_species.values().all(func(c): return c == 3), "30 normal species x 3 colors = 90")
 	_check(bosses == 30 and boss_species.size() == 10 and boss_species.values().all(func(c): return c == 3), "10 boss species x 3 colors = 30")
+	# ステージ 1-1 → 10-10 の順に、敵はなめらかに強くなる（ボスはその前後の雑魚より強い）
 	var stronger := true
-	for i in range(1, all.size()):
-		var a: EnemyData = all[i - 1]
-		var b: EnemyData = all[i]
-		if not (b.max_hp > a.max_hp and b.attack >= a.attack and b.defense >= a.defense):
-			stronger = false
-			printerr("    No.%d -> No.%d is not stronger" % [a.no, b.no])
-	_check(stronger, "higher No. is always stronger (HP up, ATK/DEF never down)")
-	var ch1_ok := true
-	for i in StageDatabase.count():
-		var e := EnemyDatabase.get_enemy(StageDatabase.get_stage(i).enemy_no)
-		if e.chapter != 1 or e.max_hp > 150 or e.attack > 12:
-			ch1_ok = false
-	_check(ch1_ok, "chapter 1 (tutorial) enemies are weak (HP <= 150, ATK <= 12)")
-	var boss := EnemyDatabase.get_enemy(StageDatabase.get_stage(StageDatabase.count() - 1).enemy_no)
-	_check(boss.is_boss and boss.no == 10, "chapter 1 boss is No.10 %s (weakest boss)" % boss.display_name)
+	var prev_mob: EnemyData = null
+	var stage_ok := true
+	for c in range(1, 11):
+		for i in 10:
+			var st := StageDatabase.get_stage(i, c)
+			var e := EnemyDatabase.get_enemy(st.enemy_no)
+			if e.chapter != c or e.is_boss != st.is_boss or st.title != "%d-%d" % [c, i + 1]:
+				stage_ok = false
+			if st.is_boss:
+				if not (e.max_hp > prev_mob.max_hp and e.attack > prev_mob.attack):
+					stronger = false
+				continue
+			if prev_mob and not (e.max_hp > prev_mob.max_hp and e.attack >= prev_mob.attack):
+				stronger = false
+				printerr("    %s No.%d is not stronger than No.%d" % [st.title, e.no, prev_mob.no])
+			prev_mob = e
+	_check(stage_ok, "10 chapters x 10 stages (c-1..c-9 = the chapter's 9 mobs, c-10 = its boss)")
+	_check(stronger, "enemies get gradually stronger from 1-1 to 10-10 (bosses stronger still)")
+	var first := EnemyDatabase.get_enemy(StageDatabase.get_stage(0, 1).enemy_no)
+	var last := EnemyDatabase.get_enemy(StageDatabase.get_stage(9, 10).enemy_no)
+	_check(first.max_hp <= 50 and first.attack <= 6, "1-1 %s is weak (HP %d, ATK %d)" % [first.display_name, first.max_hp, first.attack])
+	_check(last.max_hp > 100000, "10-10 %s is huge (HP %d, ATK %d) -- dice multiply" % [last.display_name, last.max_hp, last.attack])
 
 	# 全 120 体のモデルが作れて、パレットの色指定もれが無く、大きさが範囲内
 	var model_ok := true
@@ -334,19 +343,53 @@ func _test_custom_models() -> void:
 func _test_special_gauge_math() -> void:
 	print("\n[Unit] Special gauge")
 	var p := GameProgress.new()
-	# チャプター 1 の雑魚 3 体を倒しきったとき（ダメージを受けないとしても）
+	# 雑魚 3 体を倒しきったとき（ダメージを受けないとしても）
 	for i in 3:
-		var e := EnemyDatabase.get_enemy(StageDatabase.get_stage(i).enemy_no)
-		p.charge_on_attack(e.max_hp, e.max_hp)
-	_check(p.special_gauge > 90.0 and not p.is_special_ready(), "after the 3 tutorial mobs the gauge is %d%% (almost full)" % p.special_gauge)
+		p.charge_on_attack(100, 100)
+	_check(p.special_gauge > 90.0 and not p.is_special_ready(), "after 3 enemies the gauge is %d%% (almost full)" % p.special_gauge)
 	p.charge_on_hurt(12, 160)
 	p.charge_on_attack(15, 135)
-	_check(p.is_special_ready(), "it fills up early in the boss fight")
+	_check(p.is_special_ready(), "it fills up early in the 4th fight")
 	p.use_special()
 	_check(p.special_gauge == 0.0, "using the special empties the gauge")
 	var w := WeaponDatabase.get_weapon(p.weapon_id)
 	var faces: Array = w["special_faces"]
 	_check(w["special_type"] == &"dice_faces" and faces.size() == 6 and faces.all(func(v): return v >= 4 and v <= 6), "default sword (%s): special '%s' makes every face 4-6" % [w["name"], w["special_name"]])
+
+
+func _test_balance() -> void:
+	print("\n[Unit] Levels, multiple dice and balance")
+	_check(Balance.dice_count(1) == 1 and Balance.dice_count(9) == 1 and Balance.dice_count(10) == 2 and Balance.dice_count(20) == 3 and Balance.dice_count(50) == 6, "dice: Lv1 = 1, Lv10 = 2, Lv20 = 3 ... Lv50 = 6")
+	var table := DamageCalculator.new().dice_damage
+	_check(Balance.dice_damage([6, 4, 2], table) == 400 and Balance.dice_damage([3], table) == 15 and Balance.dice_damage([1, 1], table) == 5, "dice multiply: 6x4x2 -> 50x4x2 = 400")
+	var calc := DamageCalculator.new()
+	var hero := BattleActor.new()
+	var foe := BattleActor.new()
+	hero.power = 2.0
+	_check(calc.calculate_player_attack(DiceResult.from_values([5, 6] as Array[int]), hero, foe).amount == 600, "damage = dice x level power (30 x 10 x 2 = 600)")
+	foe.attack = 100
+	hero.damage_cut = 0.15
+	_check(calc.calculate_enemy_attack(foe, hero).amount == 85, "shield cuts damage by %% (100 -> 85 with 15%%)")
+	hero.free()
+	foe.free()
+	var p := GameProgress.new()
+	var ups := p.add_exp(Balance.exp_to_next(1) + Balance.exp_to_next(2))
+	_check(ups == 2 and p.level == 3 and p.exp_points == 0, "EXP levels you up (Lv1 -> Lv3)")
+	_check(p.total_max_hp() == Balance.player_hp(3), "max HP grows with level (%d)" % p.total_max_hp())
+	p.start_stage_at(1, 0)
+	var r := p.claim_stage_clear(40)
+	_check(r["exp"] == 40 and p.is_stage_cleared(1, 1) and p.is_stage_unlocked(1, 2) and not p.is_stage_unlocked(1, 3), "clearing 1-1 unlocks 1-2 (not 1-3)")
+	# 目安: 10-10 は Lv50 くらいから
+	var boss := EnemyDatabase.get_enemy(StageDatabase.get_stage(9, 10).enemy_no)
+	var lv40 := _expected_turns(40, boss)
+	var lv50 := _expected_turns(50, boss)
+	_check(lv50 < 9.0 and lv40 > lv50 * 3.0, "10-10 boss: about %.0f turns at Lv50, %.0f turns at Lv40" % [lv50, lv40])
+
+
+## そのレベルで敵を倒すのにかかる平均ターン数
+func _expected_turns(level: int, e: EnemyData) -> float:
+	var avg := 5.0 * pow(Balance.AVERAGE_MULTIPLIER, Balance.dice_count(level)) * Balance.power(level)
+	return e.max_hp / avg
 
 
 func _test_equipment_data() -> void:
@@ -373,13 +416,13 @@ func _test_equipment_data() -> void:
 	_check(p.attack_bonus() == 0 and p.defense_bonus() == 0 and p.hp_bonus() == 0 and p.weapon_id == WeaponDatabase.DEFAULT_WEAPON, "starting equipment adds nothing (base stats)")
 	_check(not p.equip(&"shield", &"steel_shield"), "cannot equip an item you do not have")
 	_check(p.add_item(&"shield", &"steel_shield") and not p.add_item(&"shield", &"steel_shield"), "items are added once (a second copy is a duplicate)")
-	_check(p.equip(&"shield", &"steel_shield") and p.defense_bonus() == 2, "equipping はがねのたて gives DEF +2")
+	_check(p.equip(&"shield", &"steel_shield") and p.defense_bonus() == 6 and is_equal_approx(p.damage_cut(), 0.06), "equipping はがねのたて cuts damage by 6%")
 	p.add_item(&"armor", &"hero_armor")
 	p.add_item(&"weapon", &"steel_axe")
 	p.add_item(&"weapon", &"magic_staff")
 	p.equip(&"armor", &"hero_armor")
 	p.equip(&"weapon", &"steel_axe")
-	_check(p.total_max_hp(0) == 180 and p.attack_bonus() == 5, "ゆうしゃのよろい: max HP +80, はがねのオノ: ATK +5")
+	_check(p.total_max_hp() == 130 and p.attack_bonus() == 5, "ゆうしゃのよろい: max HP +30%, はがねのオノ: ATK +5")
 	var rar_ok := true
 	for slot in EquipmentDatabase.SLOTS:
 		var seen := {}
@@ -410,7 +453,7 @@ func _test_equipment_data() -> void:
 	q.load_save(path)
 	_check(q.weapon_id == &"steel_axe" and q.equipped[&"armor"] == &"hero_armor" and q.is_owned(&"weapon", &"magic_staff") and q.gems == p.gems, "gems, equipment and items are saved and loaded")
 	p.reset()
-	_check(p.is_owned(&"armor", &"hero_armor") and p.weapon_id == &"steel_axe", "'restart from stage 1' keeps your items")
+	_check(p.is_owned(&"armor", &"hero_armor") and p.weapon_id == &"steel_axe", "starting an adventure keeps your items")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
@@ -432,10 +475,11 @@ func _test_equipment() -> void:
 	var max_before := manager.player.max_hp
 	screen.show_slot(&"armor")
 	screen.get_card(&"chain_mail").pressed.emit()
-	_check(manager.progress.equipped[&"armor"] == &"chain_mail" and manager.player.max_hp == max_before + 25 and manager.player.hp == hp_before + 25, "くさりかたびら: max HP +25 right away")
+	var gain := manager.player.max_hp - max_before
+	_check(manager.progress.equipped[&"armor"] == &"chain_mail" and gain == roundi(max_before * 0.1) and manager.player.hp == hp_before + gain, "くさりかたびら: max HP +10% right away")
 	screen.show_slot(&"shield")
 	screen.get_card(&"hero_shield").pressed.emit()
-	_check(manager.player.defense == 5, "ゆうしゃのたて: DEF 5 right away")
+	_check(is_equal_approx(manager.player.damage_cut, 0.15), "ゆうしゃのたて: damage -15% right away")
 	screen.show_slot(&"dice")
 	screen.get_card(&"gold_die").pressed.emit()
 	_check(manager.dice.face_values == [4, 6, 5, 6, 5, 6] and manager.progress.dice_id == &"gold_die", "おうごんのサイコロ: the die changes right away")
@@ -460,7 +504,7 @@ func _test_equipment() -> void:
 	# 元の装備に戻す（以降のテストは基本の能力で行う）
 	for slot in EquipmentDatabase.SLOTS:
 		manager.change_equipment(slot, EquipmentDatabase.default_item(slot))
-	_check(manager.player.attack_bonus == 0 and manager.player.defense == 0 and manager.player.max_hp == 100 and manager.dice.face_values == [1, 6, 2, 5, 3, 4], "back to the starting equipment (and the normal die)")
+	_check(manager.player.attack_bonus == 0 and manager.player.damage_cut == 0.0 and manager.player.max_hp == 100 and manager.dice.face_values == [1, 6, 2, 5, 3, 4], "back to the starting equipment (and the normal die)")
 	manager.progress.special_gauge = 0.0
 	manager._update_special_ui()
 
@@ -540,12 +584,12 @@ func _test_app() -> void:
 	_check(car.selected_chapter() == 2 and app.home.adventure_button.disabled, "swiping left shows CHAPTER 2 (locked: cannot start)")
 	await _shot("21_home_chapter2.png")
 	car.go_to(0, false)
-	app.progress.cleared_chapters.append(1)
+	app.progress.cleared_stages[1] = 10
 	app.home.refresh(app.progress)
 	_check(not car.is_silhouette(1) and car.is_silhouette(2), "after clearing, the boss is shown in color")
 	await _seconds(0.3)
 	await _shot("21_home_cleared.png")
-	app.progress.cleared_chapters.clear()
+	app.progress.cleared_stages.clear()
 	app.home.refresh(app.progress)
 	app.home.gacha_button.pressed.emit()
 	await _frames(3)
@@ -579,6 +623,11 @@ func _test_app() -> void:
 	_check(app.current_screen == GameApp.SCREEN_HOME, "closing equipment goes back HOME")
 	app.home.carousel.go_to(0, false)
 	app.home.adventure_button.pressed.emit()
+	await _frames(3)
+	_check(app.current_screen == GameApp.SCREEN_STAGES and app.stages.current_chapter() == 1, "'adventure' opens the stage select for CHAPTER 1")
+	_check(not app.stages.get_button(1).disabled and app.stages.get_button(2).disabled and app.stages.get_button(10) != null, "1-1 playable, 1-2 locked, up to 1-10")
+	await _shot("27_stage_select.png")
+	app.stages.get_button(1).pressed.emit()
 	await _frames(5)
 	_check(app.current_screen == GameApp.SCREEN_BATTLE and app.battle != null and app.battle.stage.chapter == 1, "choosing CHAPTER 1 starts the battle")
 	var b := app.battle
@@ -651,7 +700,7 @@ func _test_launch() -> void:
 	await _shot("00_stage_intro.png")
 	var ok := await _launch_intro_done()
 	_check(ok, "intro ends -> PLAYER_TURN")
-	_check(manager.stage.index == 0 and manager.enemy.data.no == 1 and manager.enemy.hp == 41, "CHAPTER 1 STAGE 1: No.1 スライム (HP 41)")
+	_check(manager.stage.index == 0 and manager.enemy.data.no == 1 and manager.enemy.hp == EnemyDatabase.get_enemy(1).max_hp, "1-1: No.1 スライム (HP %d)" % manager.enemy.hp)
 	_check(manager.player.hp == 100 and manager.player.max_hp == 100, "player has 100 HP")
 	_check(not manager.ui.roll_button.disabled, "roll button is enabled")
 	await _seconds(0.6)
@@ -710,99 +759,113 @@ func _test_defeat_stage1() -> void:
 	manager.request_roll()
 	_check(manager.state == BattleState.State.DEFEAT, "cannot roll after defeat")
 	await _wait_overlay()
-	_check(manager.ui.get_overlay_button(&"retry") != null and manager.ui.get_overlay_button(&"restart") == null, "stage 1 defeat offers retry only")
+	_check(manager.ui.get_overlay_button(&"retry") != null and manager.ui.get_overlay_button(&"stages") != null, "defeat offers retry and stage select")
 	await _seconds(0.6)
 	await _shot("05_defeat.png")
 	var start_gauge := manager.progress.stage_start_gauge
 	_check(await _press_overlay(&"retry"), "press retry")
-	_check(manager.stage.index == 0 and manager.enemy.hp == 41 and manager.enemy.attack == 5, "retry restarts stage 1 with a fresh スライム")
+	var slime := EnemyDatabase.get_enemy(1)
+	_check(manager.stage.index == 0 and manager.enemy.hp == slime.max_hp and manager.enemy.attack == slime.attack, "retry restarts 1-1 with a fresh スライム")
 	_check(is_equal_approx(manager.progress.special_gauge, start_gauge), "retry puts the SP gauge back to its value at the stage start")
-	_check(manager.player.hp == 100 and manager.player.visible, "player restored")
+	_check(manager.player.hp == manager.player.max_hp and manager.player.visible, "player restored")
 
 
 func _test_stage_progression() -> void:
-	print("\n[Test 8/10] Stage 1 -> 2 -> 3 -> BOSS -> GAME CLEAR")
-	for i in 3:
+	print("\n[Test 8/10] 1-1 -> 1-2 -> ... -> 1-10 (BOSS) -> CHAPTER CLEAR")
+	var level_start := manager.progress.level
+	for i in 9:
 		var expected := EnemyDatabase.get_enemy(StageDatabase.get_stage(i).enemy_no)
-		_check(manager.stage.index == i and manager.enemy.data.no == i + 1, "stage %d: No.%d %s" % [i + 1, expected.no, expected.display_name])
-		_check(manager.player.max_hp == 100 + 20 * i and manager.player.hp == manager.player.max_hp, "player max HP %d, full HP at stage start" % manager.player.max_hp)
+		_check(manager.stage.index == i and manager.enemy.data.no == i + 1 and manager.stage.title == "1-%d" % (i + 1), "stage 1-%d: No.%d %s (HP %d)" % [i + 1, expected.no, expected.display_name, expected.max_hp])
+		_check(manager.player.max_hp == manager.progress.total_max_hp() and manager.player.hp == manager.player.max_hp, "Lv%d: max HP %d, full HP at stage start" % [manager.progress.level, manager.player.max_hp])
 		var ok := await _win_current_stage(BattleState.State.VICTORY)
-		_check(ok, "stage %d cleared (VICTORY)" % [i + 1])
+		_check(ok, "stage 1-%d cleared (VICTORY)" % [i + 1])
 		manager.request_roll()
 		_check(manager.state == BattleState.State.VICTORY, "cannot roll after stage clear")
 		await _wait_overlay()
-		_check(not manager.enemy.visible, "enemy faded out")
+		_check(manager.last_reward.get("exp", 0) > 0 and manager.progress.is_stage_unlocked(1, i + 2), "EXP +%d, 1-%d unlocked" % [manager.last_reward.get("exp", 0), i + 2])
 		if i == 0:
+			_check(not manager.enemy.visible, "enemy faded out")
 			await _seconds(0.6)
 			await _shot("06_stage_clear.png")
 		_check(await _press_overlay(&"next"), "press 'next stage'")
-		# 前へ進む演出
-		_check(manager.is_marching and manager.state == BattleState.State.SETUP, "player marches toward stage %d" % (i + 2))
-		_check(manager.stage.index == i + 1, "only one stage advanced even with button mashing")
-		manager.request_roll()
-		_check(manager.state == BattleState.State.SETUP, "cannot roll while marching")
-		_check(not manager.dice.visible and manager.ui.is_road_visible(), "dice hidden and road map shown while marching")
-		# 描画が遅い環境でも、歩き終わる前に確認できるよう少しずつ見る
-		var moved := false
-		var tm := Time.get_ticks_msec()
-		while Time.get_ticks_msec() - tm < 2400 and manager.is_marching:
-			if manager.field.get_scroll_offset() > 1.0 and manager.ui.get_road_progress() > i:
-				moved = true
-				break
-			await process_frame
-		_check(moved, "ground scrolls and road marker moves forward")
 		if i == 0:
+			# 前へ進む演出
+			_check(manager.is_marching and manager.state == BattleState.State.SETUP, "player marches toward 1-2")
+			_check(manager.stage.index == 1, "only one stage advanced even with button mashing")
+			manager.request_roll()
+			_check(manager.state == BattleState.State.SETUP, "cannot roll while marching")
+			_check(not manager.dice.visible and manager.ui.is_road_visible(), "dice hidden and road map shown while marching")
+			# 描画が遅い環境でも、歩き終わる前に確認できるよう少しずつ見る
+			var moved := false
+			var tm := Time.get_ticks_msec()
+			while Time.get_ticks_msec() - tm < 2400 and manager.is_marching:
+				if manager.field.get_scroll_offset() > 1.0 and manager.ui.get_road_progress() > i:
+					moved = true
+					break
+				await process_frame
+			_check(moved, "ground scrolls and road marker moves forward")
 			await _shot("06b_march.png")
 		await _launch_intro_done()
-		_check(not manager.is_marching and manager.dice.visible and is_zero_approx(manager.field.get_scroll_offset()), "arrived: field reset, dice back")
-		if i < 2:
+		if i == 0:
+			_check(not manager.is_marching and manager.dice.visible and is_zero_approx(manager.field.get_scroll_offset()), "arrived: field reset, dice back")
 			await _seconds(0.3)
-			await _shot("07_stage%d.png" % (i + 2))
+			await _shot("07_stage2.png")
 
-	_check(manager.stage.is_boss and manager.enemy.data.no == 10 and manager.enemy.data.is_boss, "BOSS: No.10 %s" % manager.enemy.display_name)
-	_check(manager.enemy.max_hp == 135, "boss has 135 HP (tutorial boss)")
-	_check(manager.player.max_hp == 160 and manager.player.hp == 160, "player max HP 160 at the boss")
+	_check(manager.progress.level > level_start, "leveled up while clearing stages (Lv%d -> Lv%d)" % [level_start, manager.progress.level])
+	_check(manager.stage.is_boss and manager.stage.title == "1-10" and manager.enemy.data.no == 10 and manager.enemy.data.is_boss, "1-10 BOSS: No.10 %s (HP %d)" % [manager.enemy.display_name, manager.enemy.max_hp])
 	await _launch_intro_done()
 	await _seconds(0.3)
 	await _shot("08_boss.png")
-	var boss_hp := manager.enemy.hp
 	var boss_atk := manager.enemy.attack
+	var max_hp := manager.player.max_hp
+	_make_enemy_tough()
+	var boss_hp := manager.enemy.hp
 	manager.request_roll()
 	var ok := await _wait_state(BattleState.State.PLAYER_TURN, 25.0)
-	_check(ok and manager.enemy.hp < boss_hp and manager.player.hp == 160 - boss_atk, "a full turn against the boss works (boss hits for %d)" % boss_atk)
+	_check(ok and manager.enemy.hp < boss_hp and manager.player.hp == max_hp - boss_atk, "a full turn against the boss works (boss hits for %d)" % boss_atk)
 	await _shot("09_boss_fight.png")
 	ok = await _win_current_stage(BattleState.State.GAME_CLEAR)
-	_check(ok, "boss defeated -> GAME_CLEAR")
+	_check(ok, "boss defeated -> CHAPTER CLEAR")
 	await _wait_overlay()
-	_check(manager.ui.get_overlay_button(&"restart") != null and manager.ui.get_overlay_button(&"next") == null, "GAME CLEAR screen offers 'play again'")
+	_check(manager.ui.get_overlay_button(&"home") != null and manager.ui.get_overlay_button(&"next") == null, "CHAPTER CLEAR screen offers 'home' (no next stage)")
+	_check(manager.progress.is_chapter_cleared(1) and manager.progress.is_chapter_unlocked(2), "chapter 1 cleared -> chapter 2 unlocked")
 	await _seconds(0.6)
 	await _shot("10_game_clear.png")
-	_check(await _press_overlay(&"restart"), "press 'play again'")
-	_check(manager.stage.index == 0 and manager.enemy.data.no == 1 and manager.player.max_hp == 100, "back to STAGE 1 with base stats")
+	var exits: Array = []
+	manager.exit_requested.connect(func(to: StringName) -> void: exits.append(to))
+	_check(await _press_overlay(&"home"), "press 'home'")
+	_check(exits == [&"home"], "the battle asks to go back HOME")
+	manager.start_stage(0)
+	await _frames(2)
+	_check(manager.stage.index == 0 and manager.enemy.data.no == 1, "back to 1-1")
 
 
 func _test_defeat_later_stage() -> void:
-	print("\n[Test 9b] Defeat on stage 2 -> retry same stage / restart from stage 1")
+	print("\n[Test 9b] Defeat on 1-2 -> retry same stage / stage select")
 	manager.start_stage(1)
 	await _launch_intro_done()
 	_make_enemy_tough()
-	manager.enemy.attack = 999
+	manager.enemy.attack = 99999
 	manager.request_roll()
 	var ok := await _wait_state(BattleState.State.DEFEAT, 25.0)
-	_check(ok, "DEFEAT on stage 2")
+	_check(ok, "DEFEAT on 1-2")
 	_check(await _press_overlay(&"retry"), "press retry")
-	_check(manager.stage.index == 1 and manager.enemy.data.no == 2 and manager.player.max_hp == 120, "retry keeps stage 2 (No.2, max HP 120)")
+	_check(manager.stage.index == 1 and manager.enemy.data.no == 2 and manager.player.hp == manager.player.max_hp, "retry keeps 1-2 (No.2) with full HP")
 	await _launch_intro_done()
 	_make_enemy_tough()
-	manager.enemy.attack = 999
+	manager.enemy.attack = 99999
 	manager.request_roll()
 	ok = await _wait_state(BattleState.State.DEFEAT, 25.0)
 	_check(ok, "DEFEAT again")
-	_check(await _press_overlay(&"restart"), "press 'restart from stage 1'")
-	_check(manager.stage.index == 0 and manager.enemy.data.no == 1 and manager.player.max_hp == 100, "restart goes back to STAGE 1")
+	var exits: Array = []
+	manager.exit_requested.connect(func(to: StringName) -> void: exits.append(to))
+	_check(await _press_overlay(&"stages"), "press 'choose a stage'")
+	_check(exits == [&"stages"], "the battle asks to open the stage select")
+	manager.start_stage(0)
 	ok = await _launch_intro_done()
 	_make_enemy_tough()
 	var atk := manager.enemy.attack
+	var max_hp := manager.player.max_hp
 	manager.request_roll()
 	ok = ok and await _wait_state(BattleState.State.PLAYER_TURN, 25.0)
-	_check(ok and manager.enemy.hp < 9999 and manager.player.hp == 100 - atk, "a full turn works after restart")
+	_check(ok and manager.enemy.hp < 9999 and manager.player.hp == max_hp - atk, "a full turn works after that")

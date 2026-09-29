@@ -3,7 +3,8 @@ extends RefCounted
 ## 装備の一覧（ぶき・たて・よろい・ダイス）。ガチャで手に入る。
 ## 武器の中身は WeaponDatabase、サイコロの中身は DiceDatabase にある。
 ##
-## たて: def = 受けるダメージを減らす値 / よろい: hp = 最大 HP に足される値
+## たて: def = 受けるダメージを何 % 減らすか / よろい: hp = 最大 HP を何 % 増やすか
+## （敵もプレイヤーもレベルでどんどん強くなるので、たて・よろいは割合で効く）
 ## rarity: 1 = N, 2 = R, 3 = SR, 4 = SSR
 ## icon: アイコン（assets/icons/ の中の "セット/番号"。セットは weapons / swords / armors / shields、番号は 01〜50）
 
@@ -36,26 +37,26 @@ const STARTER := {
 
 const SHIELDS := {
 	&"trainee_shield": {"name": "みならいのたて", "rarity": 1, "icon": "shields/01", "def": 0, "desc": "旅立ちのときに持たされた小さな盾。"},
-	&"wood_shield": {"name": "きのたて", "rarity": 1, "icon": "shields/15", "def": 1, "desc": "木の板を鉄でとめた、じょうぶな盾。"},
-	&"iron_shield": {"name": "てつのたて", "rarity": 1, "icon": "shields/07", "def": 1, "desc": "鉄のわくで守られた盾。"},
-	&"steel_shield": {"name": "はがねのたて", "rarity": 2, "icon": "shields/03", "def": 2, "desc": "かたい鋼の盾。敵の攻撃を少しふせぐ。"},
-	&"star_shield": {"name": "ほしのたて", "rarity": 2, "icon": "shields/06", "def": 2, "desc": "星の紋章がかがやく丸い盾。"},
-	&"lion_shield": {"name": "しし王のたて", "rarity": 3, "icon": "shields/20", "def": 3, "desc": "ライオンの顔がきざまれた、王の盾。"},
-	&"frost_shield": {"name": "こおりのたて", "rarity": 3, "icon": "shields/19", "def": 4, "desc": "とけない氷でできた盾。"},
-	&"hero_shield": {"name": "ゆうしゃのたて", "rarity": 4, "icon": "shields/02", "def": 5, "desc": "金の鳥の紋章がきざまれた伝説の盾。"},
-	&"angel_shield": {"name": "てんしのたて", "rarity": 4, "icon": "shields/17", "def": 6, "desc": "天使のはねが守ってくれる聖なる盾。"},
+	&"wood_shield": {"name": "きのたて", "rarity": 1, "icon": "shields/15", "def": 3, "desc": "木の板を鉄でとめた、じょうぶな盾。"},
+	&"iron_shield": {"name": "てつのたて", "rarity": 1, "icon": "shields/07", "def": 4, "desc": "鉄のわくで守られた盾。"},
+	&"steel_shield": {"name": "はがねのたて", "rarity": 2, "icon": "shields/03", "def": 6, "desc": "かたい鋼の盾。敵の攻撃を少しふせぐ。"},
+	&"star_shield": {"name": "ほしのたて", "rarity": 2, "icon": "shields/06", "def": 7, "desc": "星の紋章がかがやく丸い盾。"},
+	&"lion_shield": {"name": "しし王のたて", "rarity": 3, "icon": "shields/20", "def": 10, "desc": "ライオンの顔がきざまれた、王の盾。"},
+	&"frost_shield": {"name": "こおりのたて", "rarity": 3, "icon": "shields/19", "def": 12, "desc": "とけない氷でできた盾。"},
+	&"hero_shield": {"name": "ゆうしゃのたて", "rarity": 4, "icon": "shields/02", "def": 15, "desc": "金の鳥の紋章がきざまれた伝説の盾。"},
+	&"angel_shield": {"name": "てんしのたて", "rarity": 4, "icon": "shields/17", "def": 18, "desc": "天使のはねが守ってくれる聖なる盾。"},
 }
 
 const ARMORS := {
 	&"travel_clothes": {"name": "たびびとのふく", "rarity": 1, "icon": "armors/01", "hp": 0, "desc": "動きやすい旅の服。"},
-	&"leather_armor": {"name": "かわのよろい", "rarity": 1, "icon": "armors/45", "hp": 10, "desc": "なめした革のよろい。"},
-	&"forest_cloak": {"name": "もりのマント", "rarity": 1, "icon": "armors/05", "hp": 10, "desc": "森のかりゅうどが着る、みどりのマント。"},
-	&"chain_mail": {"name": "くさりかたびら", "rarity": 2, "icon": "armors/21", "hp": 25, "desc": "鎖を編んだよろい。体力が上がる。"},
-	&"knight_armor": {"name": "きしのよろい", "rarity": 2, "icon": "armors/10", "hp": 30, "desc": "青いマントの騎士のよろい。"},
-	&"flame_armor": {"name": "ほのおのよろい", "rarity": 3, "icon": "armors/09", "hp": 50, "desc": "ほのおの力がやどる赤いよろい。"},
-	&"frost_armor": {"name": "こおりのよろい", "rarity": 3, "icon": "armors/15", "hp": 50, "desc": "氷のけっしょうでできたよろい。"},
-	&"hero_armor": {"name": "ゆうしゃのよろい", "rarity": 4, "icon": "armors/07", "hp": 80, "desc": "勇者だけが着られる光のよろい。"},
-	&"holy_armor": {"name": "せいなるよろい", "rarity": 4, "icon": "armors/19", "hp": 90, "desc": "金色にかがやく聖なるよろい。"},
+	&"leather_armor": {"name": "かわのよろい", "rarity": 1, "icon": "armors/45", "hp": 5, "desc": "なめした革のよろい。"},
+	&"forest_cloak": {"name": "もりのマント", "rarity": 1, "icon": "armors/05", "hp": 5, "desc": "森のかりゅうどが着る、みどりのマント。"},
+	&"chain_mail": {"name": "くさりかたびら", "rarity": 2, "icon": "armors/21", "hp": 10, "desc": "鎖を編んだよろい。体力が上がる。"},
+	&"knight_armor": {"name": "きしのよろい", "rarity": 2, "icon": "armors/10", "hp": 12, "desc": "青いマントの騎士のよろい。"},
+	&"flame_armor": {"name": "ほのおのよろい", "rarity": 3, "icon": "armors/09", "hp": 20, "desc": "ほのおの力がやどる赤いよろい。"},
+	&"frost_armor": {"name": "こおりのよろい", "rarity": 3, "icon": "armors/15", "hp": 22, "desc": "氷のけっしょうでできたよろい。"},
+	&"hero_armor": {"name": "ゆうしゃのよろい", "rarity": 4, "icon": "armors/07", "hp": 30, "desc": "勇者だけが着られる光のよろい。"},
+	&"holy_armor": {"name": "せいなるよろい", "rarity": 4, "icon": "armors/19", "hp": 35, "desc": "金色にかがやく聖なるよろい。"},
 }
 
 
@@ -121,9 +122,9 @@ static func stat_text(slot: StringName, id: StringName) -> String:
 		SLOT_WEAPON:
 			return "こうげき +%d" % int(item.get("atk", 0))
 		SLOT_SHIELD:
-			return "ぼうぎょ +%d" % int(item.get("def", 0))
+			return "ダメージ -%d%%" % int(item.get("def", 0))
 		SLOT_ARMOR:
-			return "最大HP +%d" % int(item.get("hp", 0))
+			return "最大HP +%d%%" % int(item.get("hp", 0))
 		SLOT_DICE:
 			return "め: %s" % DiceDatabase.faces_text(id)
 	return ""

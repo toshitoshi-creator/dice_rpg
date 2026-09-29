@@ -281,10 +281,10 @@ func _make_page(c: int) -> Control:
 	var status := ""
 	var status_color := UIStyle.TEXT
 	if cleared:
-		status = "★ クリア！"
+		status = "★ クリア！ %d / %d" % [StageDatabase.count(c), StageDatabase.count(c)]
 		status_color = UIStyle.GOLD
 	elif unlocked:
-		status = "ボスが まちうけている…"
+		status = "クリア %d / %d" % [_progress.cleared_stage(c), StageDatabase.count(c)]
 	elif not has_stages:
 		status = "じゅんびちゅう"
 		status_color = Color(0.7, 0.7, 0.75)

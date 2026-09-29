@@ -12,7 +12,8 @@ extends RefCounted
 ##   B+7〜B+9   雑魚 A/B/C の 3 色目
 ##   B+10〜B+12 ボスの 1〜3 色目
 ##
-## ステータスは No. だけから計算する（stats_for）。No. が大きいほど HP・攻撃力が高い。
+## ステータスは No. から「どのステージに出るか」を決めて Balance の式で計算する（stats_for）。
+##   B+1〜B+9 → c-1〜c-9 の雑魚、B+10 → c-10 のボス、B+11/B+12 → ボスの色違い（さらに強い）
 ## 種族の見た目・名前・色は scripts/enemies/chapter_XX.gd に書く。
 
 const CHAPTER_COUNT := 10
@@ -31,13 +32,25 @@ static func chapter_scripts() -> Array:
 	]
 
 
-## No. → ステータス。ここを変えれば全敵のバランスが変わる。
+## No. → 出てくるステージ [チャプター, ステージ]（B+11, B+12 はボスの色違いなので 10）
+static func stage_of(no: int) -> Vector2i:
+	var chapter := (no - 1) / PER_CHAPTER + 1
+	var local := (no - 1) % PER_CHAPTER + 1
+	return Vector2i(chapter, mini(local, 10))
+
+
+## No. → ステータス（数式は Balance）。
 static func stats_for(no: int) -> Dictionary:
-	var n := float(no)
+	var st := stage_of(no)
+	var local := (no - 1) % PER_CHAPTER + 1
+	var boss := local >= 10
+	# ボスの色違い（図鑑用）は少しずつ強い
+	var extra := 1.0 + 0.25 * maxi(local - 10, 0)
 	return {
-		"max_hp": roundi(35.0 + 6.0 * n + 0.4 * n * n),
-		"attack": roundi(4.0 + 0.6 * n + 0.012 * n * n),
-		"defense": no / 10,
+		"max_hp": roundi(Balance.enemy_hp(st.x, st.y, boss) * extra),
+		"attack": roundi(Balance.enemy_attack(st.x, st.y, boss) * extra),
+		"defense": 0,
+		"exp": roundi(Balance.exp_reward(st.x, st.y, boss) * extra),
 	}
 
 
@@ -116,4 +129,5 @@ static func _make(no: int, chapter: int, species: Dictionary, variant: int, is_b
 	d.max_hp = stats["max_hp"]
 	d.attack = stats["attack"]
 	d.defense = stats["defense"]
+	d.exp_points = stats["exp"]
 	return d

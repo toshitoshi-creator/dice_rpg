@@ -8,7 +8,7 @@ signal special_pressed
 signal equip_pressed
 ## 「ホーム」ボタン
 signal home_pressed
-## 結果画面のボタン（&"next" = 次のステージ, &"retry" = 再挑戦, &"restart" = 最初から）
+## 結果画面のボタン（&"next" = 次のステージ, &"retry" = 再挑戦, &"stages" = ステージ選択へ, &"home" = ホームへ）
 signal overlay_action(action: StringName)
 
 var enemy_bar: HpBar
@@ -444,10 +444,17 @@ func show_message(text: String) -> void:
 
 
 ## 出目を大きく表示してから縮小・消去する。
-func show_dice_result(value: int, is_critical: bool) -> void:
+## values: 全部のサイコロの出目（1 こなら [出目]）
+func show_dice_result(values: Array, is_critical: bool) -> void:
 	if _result_tween and _result_tween.is_valid():
 		_result_tween.kill()
-	_result_label.text = "%d!" % value
+	if values.size() <= 1:
+		_result_label.text = "%d!" % (values[0] if not values.is_empty() else 0)
+		_result_label.add_theme_font_size_override("font_size", 220)
+	else:
+		_result_label.text = "×".join(values.map(func(v: int) -> String: return str(v)))
+		# 「6×4×2」の文字数に合わせて、画面の幅に収まる大きさにする
+		_result_label.add_theme_font_size_override("font_size", clampi(roundi(620.0 / (values.size() * 2 - 1)), 48, 160))
 	_result_label.add_theme_color_override("font_color", Color(1, 0.85, 0.2) if is_critical else Color(1, 0.97, 0.85))
 	_result_label.visible = true
 	_result_label.modulate.a = 1.0
@@ -477,10 +484,11 @@ func show_dice_result(value: int, is_critical: bool) -> void:
 
 ## ステージクリア画面。
 ## rewards: ごほうびの説明（1 行ずつ）。
-func show_stage_clear(enemy_name: String, old_max_hp: int, new_max_hp: int, rewards: Array[String] = []) -> void:
-	_show_overlay("STAGE CLEAR!", "%s DEFEATED" % enemy_name, Color(1, 0.85, 0.25),
-		"LEVEL UP!  最大HP %d → %d" % [old_max_hp, new_max_hp] + _rewards_text(rewards),
-		[{"text": "次のステージへ", "action": &"next"}, {"text": "そうび", "action": &"equip", "secondary": true}])
+func show_stage_clear(enemy_name: String, rewards: Array[String] = []) -> void:
+	_show_overlay("STAGE CLEAR!", "%s をたおした！" % enemy_name, Color(1, 0.85, 0.25),
+		_rewards_text(rewards).strip_edges(),
+		[{"text": "つぎのステージへ", "action": &"next"}, {"text": "ステージをえらぶ", "action": &"stages", "secondary": true},
+		{"text": "そうび", "action": &"equip", "secondary": true}])
 
 
 func _rewards_text(rewards: Array[String]) -> String:
@@ -492,19 +500,17 @@ func _rewards_text(rewards: Array[String]) -> String:
 
 ## 全ステージクリア画面。
 func show_game_clear(enemy_name: String, rewards: Array[String] = []) -> void:
-	_show_overlay("GAME CLEAR!", "%s DEFEATED" % enemy_name, Color(1, 0.85, 0.25),
-		"全ステージ制覇！おめでとう！" + _rewards_text(rewards),
-		[{"text": "ホームへ", "action": &"home"}, {"text": "もう一度遊ぶ", "action": &"restart", "secondary": true}])
+	_show_overlay("CHAPTER CLEAR!", "%s をたおした！" % enemy_name, Color(1, 0.85, 0.25),
+		"チャプター制覇！おめでとう！" + _rewards_text(rewards),
+		[{"text": "ホームへ", "action": &"home"}, {"text": "ステージをえらぶ", "action": &"stages", "secondary": true}])
 
 
-## 敗北画面。ステージ 2 以降では「最初から」も選べる。
-func show_defeat(can_restart_from_first: bool) -> void:
-	var buttons: Array = [{"text": "このステージに再挑戦" if can_restart_from_first else "もう一度戦う", "action": &"retry"}]
-	if can_restart_from_first:
-		buttons.append({"text": "最初から", "action": &"restart", "secondary": true})
+## 敗北画面。
+func show_defeat() -> void:
+	var buttons: Array = [{"text": "もう一度 たたかう", "action": &"retry"}]
 	buttons.append({"text": "そうび", "action": &"equip", "secondary": true})
-	buttons.append({"text": "ホームへ", "action": &"home", "secondary": true})
-	_show_overlay("DEFEAT", "YOU WERE DEFEATED", Color(0.75, 0.2, 0.25), "", buttons)
+	buttons.append({"text": "ステージをえらぶ", "action": &"stages", "secondary": true})
+	_show_overlay("DEFEAT", "レベルを上げたり そうびを 見直そう", Color(0.75, 0.2, 0.25), "", buttons)
 
 
 func _show_overlay(title: String, subtitle: String, color: Color, detail: String, buttons: Array) -> void:
