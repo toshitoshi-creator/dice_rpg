@@ -238,9 +238,9 @@ func _win_current_stage(expected_state: BattleState.State) -> bool:
 
 
 func _test_bestiary() -> void:
-	print("\n[Unit] Enemy bestiary (120)")
+	print("\n[Unit] Enemy bestiary (240)")
 	var all := EnemyDatabase.all()
-	_check(all.size() == 120, "120 enemies registered (%d)" % all.size())
+	_check(all.size() == 240, "240 enemies registered (%d)" % all.size())
 	var numbers_ok := true
 	var ids := {}
 	var names := {}
@@ -260,15 +260,15 @@ func _test_bestiary() -> void:
 		else:
 			mobs += 1
 			mob_species[e.species_id] = mob_species.get(e.species_id, 0) + 1
-	_check(numbers_ok, "No.1 - No.120 are sequential")
-	_check(ids.size() == 120 and names.size() == 120, "ids and names are unique")
-	_check(mobs == 90 and mob_species.size() == 30 and mob_species.values().all(func(c): return c == 3), "30 normal species x 3 colors = 90")
-	_check(bosses == 30 and boss_species.size() == 10 and boss_species.values().all(func(c): return c == 3), "10 boss species x 3 colors = 30")
+	_check(numbers_ok, "No.1 - No.240 are sequential")
+	_check(ids.size() == 240 and names.size() == 240, "ids and names are unique")
+	_check(mobs == 180 and mob_species.size() == 60 and mob_species.values().all(func(c): return c == 3), "60 normal species x 3 colors = 180")
+	_check(bosses == 60 and boss_species.size() == 20 and boss_species.values().all(func(c): return c == 3), "20 boss species x 3 colors = 60")
 	# ステージ 1-1 → 10-10 の順に、敵はなめらかに強くなる（ボスはその前後の雑魚より強い）
 	var stronger := true
 	var prev_mob: EnemyData = null
 	var stage_ok := true
-	for c in range(1, 11):
+	for c in range(1, 21):
 		for i in 10:
 			var st := StageDatabase.get_stage(i, c)
 			var e := EnemyDatabase.get_enemy(st.enemy_no)
@@ -282,14 +282,15 @@ func _test_bestiary() -> void:
 				stronger = false
 				printerr("    %s No.%d is not stronger than No.%d" % [st.title, e.no, prev_mob.no])
 			prev_mob = e
-	_check(stage_ok, "10 chapters x 10 stages (c-1..c-9 = the chapter's 9 mobs, c-10 = its boss)")
-	_check(stronger, "enemies get gradually stronger from 1-1 to 10-10 (bosses stronger still)")
+	_check(stage_ok, "20 chapters x 10 stages (c-1..c-9 = the chapter's 9 mobs, c-10 = its boss)")
+	_check(stronger, "enemies get gradually stronger from 1-1 to 20-10 (bosses stronger still)")
+	_check(StageDatabase.recommended_level(20, 10) >= 70 and StageDatabase.recommended_level(20, 10) <= 80, "20-10 is for about Lv%d" % StageDatabase.recommended_level(20, 10))
 	var first := EnemyDatabase.get_enemy(StageDatabase.get_stage(0, 1).enemy_no)
 	var last := EnemyDatabase.get_enemy(StageDatabase.get_stage(9, 10).enemy_no)
 	_check(first.max_hp <= 50 and first.attack <= 6, "1-1 %s is weak (HP %d, ATK %d)" % [first.display_name, first.max_hp, first.attack])
 	_check(last.max_hp > 100000, "10-10 %s is huge (HP %d, ATK %d) -- dice multiply" % [last.display_name, last.max_hp, last.attack])
 
-	# 全 120 体のモデルが作れて、パレットの色指定もれが無く、大きさが範囲内
+	# 全 240 体のモデルが作れて、パレットの色指定もれが無く、大きさが範囲内
 	var model_ok := true
 	var size_ok := true
 	var roles_ok := true
@@ -312,7 +313,7 @@ func _test_bestiary() -> void:
 			printerr("    No.%d missing palette roles %s" % [e.no, kit.missing_roles])
 		actor.queue_free()
 	await _frames(2)
-	_check(model_ok, "all 120 models build")
+	_check(model_ok, "all 240 models build")
 	_check(size_ok, "all models fit their target size")
 	_check(roles_ok, "no missing palette colors")
 
@@ -395,14 +396,14 @@ func _test_economy() -> void:
 	_check(s11.enemy_nos.size() == 1 and StageDatabase.enemy_stats(s11, 0)["gold"] == 10000, "1-1: one enemy that gives 10,000 gold")
 	var sizes := {}
 	var species := {}
-	for c in range(1, 11):
+	for c in range(1, 21):
 		for i in 10:
 			var st := StageDatabase.get_stage(i, c)
 			sizes[st.enemy_nos.size()] = true
 			for no in st.enemy_nos:
 				species[EnemyDatabase.get_enemy(no).species_id] = true
 	_check(sizes.has(1) and sizes.has(2) and sizes.has(3), "stages have groups of 1, 2 and 3 enemies")
-	_check(species.size() >= 40, "%d species appear across the stages" % species.size())
+	_check(species.size() >= 80, "%d species appear across the stages" % species.size())
 	_check(Balance.exp_to_next(45) > Balance.exp_to_next(44) * 1.2, "leveling slows down after Lv40")
 	# ゾロ目・クリティカル
 	_check(Balance.zorome_multiplier([3, 3]) == 4 and Balance.zorome_multiplier([3, 3, 1]) == 2 and Balance.zorome_multiplier([2, 2, 5, 5]) == 4 and Balance.zorome_multiplier([6, 6, 6]) == 8, "zorome: pair x2, triple x4, all-same x2 more")
@@ -641,7 +642,7 @@ func _test_app() -> void:
 	_check(app.current_screen == GameApp.SCREEN_HOME and app.home.visible and app.battle == null, "the game starts on the HOME screen")
 	await _shot("20_home.png")
 	var car := app.home.carousel
-	_check(car.page_count() == 10 and car.selected_chapter() == 1 and not app.home.adventure_button.disabled, "HOME shows the chapter cards (CHAPTER 1 selected, playable)")
+	_check(car.page_count() == 20 and car.selected_chapter() == 1 and not app.home.adventure_button.disabled, "HOME shows the chapter cards (CHAPTER 1 selected, playable)")
 	_check(car.get_boss_rect(1).texture != null and car.is_silhouette(1), "an uncleared chapter shows its boss as a silhouette")
 	# 左へスワイプ → CHAPTER 2
 	var press := InputEventMouseButton.new()

@@ -1,6 +1,6 @@
 class_name StageDatabase
 extends RefCounted
-## ステージ構成。10 チャプター × 10 ステージ（1-1 〜 10-10）。
+## ステージ構成。20 チャプター × 10 ステージ（1-1 〜 20-10）。
 ##
 ## チャプター c のステージ:
 ##   c-1 〜 c-9 … そのチャプターの雑魚（図鑑の B+s が中心。B = (c-1)×12）と、なかまの 1〜3 体のグループ。
@@ -10,11 +10,12 @@ extends RefCounted
 ## 強さはステージが進むほどなめらかに上がる（数式は Balance）。
 ## ステージの見た目（空の色）は THEMES、名前はチャプターのエリア名（scripts/enemies/chapter_XX.gd の AREA）。
 
-const CHAPTER_COUNT := 10
+const CHAPTER_COUNT := 20
 const STAGES_PER_CHAPTER := Balance.STAGES_PER_CHAPTER
 
 ## チャプターの空の色（ボスステージは &"boss"）。7〜9 ステージ目は夕方にする（昼のチャプターのみ）
-const THEMES := [&"day", &"day", &"day", &"night", &"night", &"day", &"dusk", &"day", &"night", &"night"]
+const THEMES := [&"day", &"day", &"day", &"night", &"night", &"day", &"dusk", &"day", &"night", &"night",
+	&"day", &"dusk", &"day", &"night", &"day", &"dusk", &"day", &"night", &"night", &"day"]
 
 
 ## 遊べるチャプターの数。

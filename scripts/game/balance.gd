@@ -88,8 +88,13 @@ static func stage_number(chapter: int, stage: int) -> int:
 
 
 ## このステージに挑む目安のレベル
+## チャプター 10 まではステージごとに +0.5、そのあと（11〜20）はレベルが上がりにくくなるのに合わせて +0.25。
+## 10-10 = Lv50.5、20-10 = Lv75.5
 static func design_level(chapter: int, stage: int) -> float:
-	return 5.0 * (chapter - 1) + 0.5 * (stage - 1) + 1.0
+	var k := stage_number(chapter, stage)
+	if k <= 100:
+		return 5.0 * (chapter - 1) + 0.5 * (stage - 1) + 1.0
+	return 50.5 + 0.25 * (k - 100)
 
 
 ## 目安のレベルのプレイヤーの 1 ターンあたりの平均ダメージ（なめらかな曲線にしたもの）

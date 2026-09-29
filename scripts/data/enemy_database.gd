@@ -1,10 +1,10 @@
 class_name EnemyDatabase
 extends RefCounted
-## 敵図鑑（全 120 体）。
+## 敵図鑑（全 240 体）。
 ##
-## 構成: 10 チャプター × 12 体
+## 構成: 20 チャプター × 12 体
 ##   各チャプター = 雑魚 3 種族 × 色違い 3 = 9 体  ＋  ボス 1 種族 × 色違い 3 = 3 体
-##   → 雑魚 30 種族 × 3 = 90 体、ボス 10 種族 × 3 = 30 体
+##   → 雑魚 60 種族 × 3 = 180 体、ボス 20 種族 × 3 = 60 体
 ##
 ## 図鑑番号（No.）の並び（チャプター c の先頭を B = (c-1)*12 とする）:
 ##   B+1〜B+3   雑魚 A/B/C の 1 色目
@@ -16,7 +16,7 @@ extends RefCounted
 ##   B+1〜B+9 → c-1〜c-9 の雑魚、B+10 → c-10 のボス、B+11/B+12 → ボスの色違い（さらに強い）
 ## 種族の見た目・名前・色は scripts/enemies/chapter_XX.gd に書く。
 
-const CHAPTER_COUNT := 10
+const CHAPTER_COUNT := 20
 const PER_CHAPTER := 12
 const TOTAL := CHAPTER_COUNT * PER_CHAPTER
 
@@ -29,6 +29,8 @@ static func chapter_scripts() -> Array:
 	return [
 		EnemyChapter01, EnemyChapter02, EnemyChapter03, EnemyChapter04, EnemyChapter05,
 		EnemyChapter06, EnemyChapter07, EnemyChapter08, EnemyChapter09, EnemyChapter10,
+		EnemyChapter11, EnemyChapter12, EnemyChapter13, EnemyChapter14, EnemyChapter15,
+		EnemyChapter16, EnemyChapter17, EnemyChapter18, EnemyChapter19, EnemyChapter20,
 	]
 
 
