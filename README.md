@@ -34,12 +34,14 @@ Godot 4.3 以降 / GDScript。外部アセット不要（モデル・エフェ�
 ### 画面の流れ
 
 ```
-ホーム ─ ぼうけんに でる → チャプター選択 → バトル（STAGE 1〜3 → BOSS）→ ホームへ
+ホーム（チャプターを左右スワイプで選ぶ）─ ぼうけんに でる → バトル（STAGE 1〜3 → BOSS）→ ホームへ
       ├ そうび（ぶき・たて・よろい・ダイス を付けかえ）
       └ ガチャ（そうびガチャ / ダイスガチャ）
 ```
 
-- 画面の切りかえ: `scripts/app/game_app.gd`（main.tscn）。画面: `scripts/ui/home_screen.gd`, `chapter_screen.gd`, `gacha_screen.gd`, `equipment_screen.gd`
+- 画面の切りかえ: `scripts/app/game_app.gd`（main.tscn）。画面: `scripts/ui/home_screen.gd`（チャプターのカードは `chapter_carousel.gd`）, `gacha_screen.gd`, `equipment_screen.gd`
+- チャプターのカードの背景はそのチャプターのボス。クリア前は黒いシルエット、クリアするとちゃんと表示される。
+  ボスの画像 `assets/images/bosses/chapter_XX.png` は `tools/render_boss_portraits.gd` で作る（ボスの見た目を変えたら作り直す）
 - チャプター 1 だけ遊べる（2〜10 は「じゅんびちゅう」）。ステージは `scripts/data/stage_database.gd` の `CHAPTERS` に追加する
 
 ### ジェムとガチャ

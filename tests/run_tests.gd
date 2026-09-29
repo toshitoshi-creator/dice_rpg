@@ -508,7 +508,7 @@ func _test_gacha_math() -> void:
 	var r2 := q.claim_stage_clear()
 	var r3 := q.claim_stage_clear()
 	_check(r1["gems"] == GameProgress.STAGE_GEMS and r2["gems"] == GameProgress.BOSS_GEMS + GameProgress.FIRST_CLEAR_GEMS and r2["first_clear"] and r3["gems"] == GameProgress.BOSS_GEMS, "stage clear gems: %d / boss %d (+%d first clear)" % [GameProgress.STAGE_GEMS, GameProgress.BOSS_GEMS, GameProgress.FIRST_CLEAR_GEMS])
-	_check(q.is_chapter_cleared(1) and ChapterScreen.is_unlocked(q, 1) and not ChapterScreen.is_unlocked(GameProgress.new(), 2), "chapter 1 is cleared; chapter 2 is locked")
+	_check(q.is_chapter_cleared(1) and q.is_chapter_unlocked(1) and not GameProgress.new().is_chapter_unlocked(2), "chapter 1 is cleared; chapter 2 is locked")
 
 
 func _test_app() -> void:
@@ -519,12 +519,34 @@ func _test_app() -> void:
 	await _frames(5)
 	_check(app.current_screen == GameApp.SCREEN_HOME and app.home.visible and app.battle == null, "the game starts on the HOME screen")
 	await _shot("20_home.png")
-	app.home.adventure_button.pressed.emit()
-	await _frames(3)
-	_check(app.current_screen == GameApp.SCREEN_CHAPTERS and not app.chapters.get_card(1).disabled and app.chapters.get_card(2).disabled, "chapter screen: CHAPTER 1 playable, CHAPTER 2 locked")
-	await _shot("21_chapters.png")
-	app.chapters.back_pressed.emit()
-	await _frames(2)
+	var car := app.home.carousel
+	_check(car.page_count() == 10 and car.selected_chapter() == 1 and not app.home.adventure_button.disabled, "HOME shows the chapter cards (CHAPTER 1 selected, playable)")
+	_check(car.get_boss_rect(1).texture != null and car.is_silhouette(1), "an uncleared chapter shows its boss as a silhouette")
+	# 左へスワイプ → CHAPTER 2
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = Vector2(500, 300)
+	car._gui_input(press)
+	var drag := InputEventMouseMotion.new()
+	drag.button_mask = MOUSE_BUTTON_MASK_LEFT
+	drag.position = Vector2(300, 300)
+	car._gui_input(drag)
+	var release := press.duplicate() as InputEventMouseButton
+	release.pressed = false
+	release.position = drag.position
+	car._gui_input(release)
+	await _seconds(0.5)
+	_check(car.selected_chapter() == 2 and app.home.adventure_button.disabled, "swiping left shows CHAPTER 2 (locked: cannot start)")
+	await _shot("21_home_chapter2.png")
+	car.go_to(0, false)
+	app.progress.cleared_chapters.append(1)
+	app.home.refresh(app.progress)
+	_check(not car.is_silhouette(1) and car.is_silhouette(2), "after clearing, the boss is shown in color")
+	await _seconds(0.3)
+	await _shot("21_home_cleared.png")
+	app.progress.cleared_chapters.clear()
+	app.home.refresh(app.progress)
 	app.home.gacha_button.pressed.emit()
 	await _frames(3)
 	_check(app.current_screen == GameApp.SCREEN_GACHA and not app.gacha_screen.ten_button.disabled, "gacha screen opens (10-pull available with the starting gems)")
@@ -555,9 +577,8 @@ func _test_app() -> void:
 	app.equipment.close()
 	await _frames(2)
 	_check(app.current_screen == GameApp.SCREEN_HOME, "closing equipment goes back HOME")
+	app.home.carousel.go_to(0, false)
 	app.home.adventure_button.pressed.emit()
-	await _frames(2)
-	app.chapters.get_card(1).pressed.emit()
 	await _frames(5)
 	_check(app.current_screen == GameApp.SCREEN_BATTLE and app.battle != null and app.battle.stage.chapter == 1, "choosing CHAPTER 1 starts the battle")
 	var b := app.battle

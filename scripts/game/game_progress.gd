@@ -193,6 +193,11 @@ func is_chapter_cleared(c: int) -> bool:
 	return cleared_chapters.has(c)
 
 
+## チャプター c を遊べるか: ステージが用意されていて、ひとつ前のチャプターをクリアしていること。
+func is_chapter_unlocked(c: int) -> bool:
+	return StageDatabase.is_playable(c) and (c == 1 or is_chapter_cleared(c - 1))
+
+
 ## 装備を保存する（Web 版ではブラウザに保存される）。
 func save() -> void:
 	if save_path == "":

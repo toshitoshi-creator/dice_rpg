@@ -2,7 +2,7 @@ class_name GameApp
 extends Node
 ## ゲーム全体の画面の切りかえ役（main.tscn のいちばん上）。
 ##
-## ホーム → チャプター選択 → バトル（BattleManager）
+## ホーム（チャプターをスワイプで選ぶ）→ バトル（BattleManager）
 ##       → そうび（EquipmentScreen）
 ##       → ガチャ（GachaScreen）
 ## プレイヤーのデータ（ジェム・持ち物・装備）は GameProgress 1 つを全画面で使い、save_path に保存する。
@@ -11,7 +11,6 @@ signal screen_changed(screen_name: StringName)
 
 const SAVE_PATH := "user://save.cfg"
 const SCREEN_HOME := &"home"
-const SCREEN_CHAPTERS := &"chapters"
 const SCREEN_EQUIPMENT := &"equipment"
 const SCREEN_GACHA := &"gacha"
 const SCREEN_BATTLE := &"battle"
@@ -26,7 +25,6 @@ var battle: BattleManager
 var current_screen: StringName = &""
 
 var home: HomeScreen
-var chapters: ChapterScreen
 var equipment: EquipmentScreen
 var gacha_screen: GachaScreen
 
@@ -56,14 +54,9 @@ func _ready() -> void:
 
 	home = HomeScreen.new()
 	root.add_child(home)
-	home.adventure_pressed.connect(func() -> void: _go(SCREEN_CHAPTERS))
+	home.adventure_pressed.connect(start_chapter)
 	home.equipment_pressed.connect(func() -> void: _go(SCREEN_EQUIPMENT))
 	home.gacha_pressed.connect(func() -> void: _go(SCREEN_GACHA))
-
-	chapters = ChapterScreen.new()
-	root.add_child(chapters)
-	chapters.back_pressed.connect(func() -> void: _go(SCREEN_HOME))
-	chapters.chapter_selected.connect(start_chapter)
 
 	gacha_screen = GachaScreen.new()
 	root.add_child(gacha_screen)
@@ -78,7 +71,8 @@ func _ready() -> void:
 			sound.play(&"button", 0.0, 1.3))
 	equipment.closed.connect(func() -> void: _go(SCREEN_HOME))
 
-	_screens = {SCREEN_HOME: home, SCREEN_CHAPTERS: chapters, SCREEN_GACHA: gacha_screen, SCREEN_EQUIPMENT: equipment}
+	_screens = {SCREEN_HOME: home, SCREEN_GACHA: gacha_screen, SCREEN_EQUIPMENT: equipment}
+	home.refresh(progress, true)
 	show_home()
 
 
@@ -105,8 +99,6 @@ func _show(screen: StringName) -> void:
 	match screen:
 		SCREEN_HOME:
 			home.refresh(progress)
-		SCREEN_CHAPTERS:
-			chapters.refresh(progress)
 		SCREEN_GACHA:
 			gacha_screen.setup(progress, gacha)
 		SCREEN_EQUIPMENT:
@@ -118,7 +110,7 @@ func _show(screen: StringName) -> void:
 
 ## チャプターのぼうけんを始める（ステージ 1 から）。
 func start_chapter(c: int) -> void:
-	if not ChapterScreen.is_unlocked(progress, c):
+	if not progress.is_chapter_unlocked(c):
 		return
 	sound.play(&"button")
 	_end_battle()
