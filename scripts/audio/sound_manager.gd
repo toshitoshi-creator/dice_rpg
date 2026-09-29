@@ -5,7 +5,7 @@ extends Node
 ## res://assets/sounds/<name>.(ogg|wav|mp3) があればそれを再生する。
 ## ファイルがまだ無い場合は、簡単な合成音で代用する（エラーにはしない）。
 ## 使用する名前: dice_roll, dice_hit, attack, damage, critical, enemy_attack,
-##               enemy_die, victory, defeat, button
+##               enemy_die, victory, defeat, button, step
 
 const SOUND_DIR := "res://assets/sounds/"
 const EXTENSIONS := ["ogg", "wav", "mp3"]
@@ -94,6 +94,9 @@ func _synthesize(sound_name: StringName) -> AudioStreamWAV:
 				var notes := [392.0, 349.23, 311.13, 261.63]
 				var idx := mini(int(t / 0.25), notes.size() - 1)
 				return sin(t * TAU * notes[idx]) * 0.35 * (1.0 - t))
+		&"step":
+			return _make(0.07, func(t: float, _i: int) -> float:
+				return ((randf() * 2.0 - 1.0) * 0.4 + sin(t * TAU * 90.0) * 0.6) * exp(-t * 55.0))
 		&"button":
 			return _make(0.06, func(t: float, _i: int) -> float:
 				return sin(t * TAU * 880.0) * 0.3 * (1.0 - t / 0.06))

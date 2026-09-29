@@ -26,6 +26,8 @@ var _banner_subtitle: Label
 var _result_tween: Tween
 var _button_tween: Tween
 var _banner_tween: Tween
+var _road: RoadMap
+var _road_tween: Tween
 
 
 func _ready() -> void:
@@ -111,8 +113,8 @@ func _build_center() -> void:
 	_message_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_message_label.anchor_left = 0.0
 	_message_label.anchor_right = 1.0
-	_message_label.anchor_top = 0.2
-	_message_label.anchor_bottom = 0.2
+	_message_label.anchor_top = 0.215
+	_message_label.anchor_bottom = 0.215
 	_message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_message_label.add_theme_font_size_override("font_size", 34)
 	_message_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
@@ -128,6 +130,18 @@ func _build_center() -> void:
 	_sub_result_label.anchor_top = 0.47
 	_sub_result_label.anchor_bottom = 0.57
 	_root.add_child(_sub_result_label)
+
+	# チャプター内の道のり
+	_road = RoadMap.new()
+	_road.anchor_left = 0.5
+	_road.anchor_right = 0.5
+	_road.anchor_top = 0.132
+	_road.anchor_bottom = 0.132
+	_road.offset_left = -220
+	_road.offset_right = 220
+	_road.offset_bottom = 72
+	_road.visible = false
+	_root.add_child(_road)
 
 	# ステージ開始時のバナー
 	_banner_title = _make_big_label(120, Color(1, 0.9, 0.55))
@@ -360,6 +374,47 @@ func press_primary_overlay_button() -> void:
 	var b := _overlay_buttons.get_child(0) as Button
 	if b and not b.disabled:
 		b.pressed.emit()
+
+
+## 道のりを表示する（index = 今いるステージ）。
+func show_road(index: int, total: int) -> void:
+	if _road_tween and _road_tween.is_valid():
+		_road_tween.kill()
+	_road.total = total
+	_road.progress = index
+	if not _road.visible:
+		_road.visible = true
+		_road.modulate.a = 0.0
+	_road_tween = create_tween()
+	_road_tween.tween_property(_road, "modulate:a", 1.0, 0.2)
+
+
+## 道のりの印を次のステージへ進める。
+func advance_road(to_index: int, duration: float) -> void:
+	if _road_tween and _road_tween.is_valid():
+		_road_tween.kill()
+	_road.visible = true
+	_road.modulate.a = 1.0
+	_road_tween = create_tween()
+	_road_tween.tween_property(_road, "progress", float(to_index), duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func hide_road() -> void:
+	if not _road.visible:
+		return
+	if _road_tween and _road_tween.is_valid():
+		_road_tween.kill()
+	_road_tween = create_tween()
+	_road_tween.tween_property(_road, "modulate:a", 0.0, 0.3)
+	_road_tween.tween_callback(func() -> void: _road.visible = false)
+
+
+func is_road_visible() -> bool:
+	return _road.visible
+
+
+func get_road_progress() -> float:
+	return _road.progress
 
 
 func set_stage_info(text: String, is_boss: bool) -> void:

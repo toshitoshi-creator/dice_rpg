@@ -398,8 +398,19 @@ func _test_stage_progression() -> void:
 			await _seconds(0.6)
 			await _shot("06_stage_clear.png")
 		_check(await _press_overlay(&"next"), "press 'next stage'")
+		# 前へ進む演出
+		_check(manager.is_marching and manager.state == BattleState.State.SETUP, "player marches toward stage %d" % (i + 2))
+		_check(manager.stage.index == i + 1, "only one stage advanced even with button mashing")
+		manager.request_roll()
+		_check(manager.state == BattleState.State.SETUP, "cannot roll while marching")
+		_check(not manager.dice.visible and manager.ui.is_road_visible(), "dice hidden and road map shown while marching")
+		await _seconds(1.3 * (3.0 if take_shots else 1.0))
+		_check(manager.field.get_scroll_offset() > 1.0 and manager.ui.get_road_progress() > i, "ground scrolls and road marker moves forward")
+		if i == 0:
+			await _shot("06b_march.png")
+		await _launch_intro_done()
+		_check(not manager.is_marching and manager.dice.visible and is_zero_approx(manager.field.get_scroll_offset()), "arrived: field reset, dice back")
 		if i < 2:
-			await _launch_intro_done()
 			await _seconds(0.3)
 			await _shot("07_stage%d.png" % (i + 2))
 

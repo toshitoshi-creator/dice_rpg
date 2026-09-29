@@ -187,6 +187,26 @@ func lunge_to(target: Vector3, distance_ratio: float = 0.55) -> void:
 	await t.finished
 
 
+## その場で歩く（前に進む演出用。地面のほうがスクロールする）。1 歩ごとに on_step を呼ぶ。
+func play_walk(duration: float, on_step: Callable = Callable()) -> void:
+	stop_idle()
+	var step_time := 0.32
+	var steps := maxi(int(duration / step_time), 1)
+	var half := duration / steps * 0.5
+	var t := create_tween()
+	for i in steps:
+		var tilt := 4.0 if i % 2 == 0 else -4.0
+		t.tween_property(model, "position:y", 0.12, half).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		t.parallel().tween_property(model, "rotation_degrees:z", tilt, half)
+		t.tween_property(model, "position:y", 0.0, half).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		if on_step.is_valid():
+			t.tween_callback(on_step)
+	t.tween_property(model, "rotation_degrees:z", 0.0, 0.1)
+	await t.finished
+	if not is_dead():
+		start_idle()
+
+
 func return_home() -> void:
 	var t := create_tween()
 	t.tween_property(self, "position", _home_position, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)

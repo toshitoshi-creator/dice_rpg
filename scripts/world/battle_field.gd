@@ -1,6 +1,11 @@
 class_name BattleField
 extends Node3D
 ## 3D バトルフィールド（空・ライト・床・サイコロ台・背景の装飾）をコードで構築する。
+##
+## 「前に進む」演出のため、アリーナ一式（床の見た目・サイコロ台・柱・木など）は
+## まったく同じものを 2 つ（今いる場所と、SEGMENT_LENGTH 先）作ってスクロール用ノードに入れておく。
+## play_advance() でスクロールさせると先のアリーナが手前に来て、最後に位置を戻しても見た目は変わらない。
+## 空・太陽・遠くの山・物理用の床と壁は動かさない。
 
 ## サイコロが転がる範囲（見えない壁で囲う）
 const TRAY_MIN := Vector2(-2.6, -2.1)   # (x, z)
@@ -9,6 +14,9 @@ const TRAY_MAX := Vector2(2.6, 2.9)
 var enemy_spot := Vector3(0, 0, -4.7)
 var player_spot := Vector3(0, 0, 4.4)
 var dice_rest_position := Vector3(0, 0.5, 0.6)
+
+## 次のアリーナまでの距離
+const SEGMENT_LENGTH := 26.0
 
 ## ステージごとの見た目（空・太陽・霧・松明の強さ）
 const THEMES := {
@@ -40,14 +48,48 @@ var _time := 0.0
 var _env: Environment
 var _sky_mat: ProceduralSkyMaterial
 var _sun: DirectionalLight3D
+var _theme_values: Dictionary = {}
+var _theme_tween: Tween
+## スクロールするもの（アリーナ 2 つ分と草原）
+var _scroll_root: Node3D
+## _mesh() の追加先
+var _target: Node3D
 
 
 func _ready() -> void:
+	_target = self
 	_build_environment()
+	_build_physics()
+	_scroll_root = Node3D.new()
+	_scroll_root.name = "ScrollRoot"
+	add_child(_scroll_root)
+	_target = _scroll_root
 	_build_ground()
-	_build_arena()
-	_build_dice_tray()
-	_build_decorations()
+	for seg in 2:
+		var segment := Node3D.new()
+		segment.name = "Segment%d" % seg
+		segment.position.z = -SEGMENT_LENGTH * seg
+		_scroll_root.add_child(segment)
+		_target = segment
+		_build_arena()
+		_build_dice_tray()
+		_build_decorations()
+	_target = self
+	_build_mountains()
+	apply_theme(&"day")
+
+
+## 前へ進む演出。duration 秒かけて次のアリーナが今の位置まで来る。
+func play_advance(duration: float) -> void:
+	var t := create_tween()
+	t.tween_property(_scroll_root, "position:z", SEGMENT_LENGTH, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	await t.finished
+	# 2 つのアリーナは同じ形なので、戻しても見た目は変わらない
+	_scroll_root.position.z = 0.0
+
+
+func get_scroll_offset() -> float:
+	return _scroll_root.position.z
 
 
 func _process(delta: float) -> void:
@@ -57,9 +99,29 @@ func _process(delta: float) -> void:
 		l.light_energy = _torch_energy + sin(_time * 9.0 + i * 1.7) * 0.25 + sin(_time * 23.0 + i) * 0.15
 
 
-## ステージのテーマを適用する（_ready 後に呼ぶ）。
+## ステージのテーマをすぐに適用する。
 func apply_theme(theme_id: StringName) -> void:
-	var theme: Dictionary = THEMES.get(theme_id, THEMES[&"day"])
+	if _theme_tween and _theme_tween.is_valid():
+		_theme_tween.kill()
+	_apply_theme_values(THEMES.get(theme_id, THEMES[&"day"]))
+
+
+## ステージのテーマへ duration 秒かけて変化させる（移動中に空の色が変わっていく）。
+func tween_theme(theme_id: StringName, duration: float) -> void:
+	if _theme_tween and _theme_tween.is_valid():
+		_theme_tween.kill()
+	var from := _theme_values.duplicate()
+	var to: Dictionary = THEMES.get(theme_id, THEMES[&"day"])
+	_theme_tween = create_tween()
+	_theme_tween.tween_method(func(t: float) -> void:
+		var mixed := {}
+		for key in to:
+			mixed[key] = lerp(from.get(key, to[key]), to[key], t)
+		_apply_theme_values(mixed), 0.0, 1.0, duration).set_trans(Tween.TRANS_SINE)
+
+
+func _apply_theme_values(theme: Dictionary) -> void:
+	_theme_values = theme.duplicate()
 	_sky_mat.sky_top_color = theme["sky_top"]
 	_sky_mat.sky_horizon_color = theme["sky_horizon"]
 	_sky_mat.ground_horizon_color = (theme["sky_horizon"] as Color).darkened(0.4)
@@ -118,8 +180,8 @@ func _build_environment() -> void:
 	add_child(sun)
 
 
-func _build_ground() -> void:
-	# 物理用の床（全面）
+## 物理用の床とサイコロ台の見えない壁（スクロールしない）。
+func _build_physics() -> void:
 	var floor_body := StaticBody3D.new()
 	floor_body.name = "Floor"
 	var shape := CollisionShape3D.new()
@@ -130,7 +192,35 @@ func _build_ground() -> void:
 	floor_body.add_child(shape)
 	add_child(floor_body)
 
-	# 草地
+	var size_x := TRAY_MAX.x - TRAY_MIN.x
+	var size_z := TRAY_MAX.y - TRAY_MIN.y
+	var center := Vector3((TRAY_MAX.x + TRAY_MIN.x) * 0.5, 0, (TRAY_MAX.y + TRAY_MIN.y) * 0.5)
+	var walls := StaticBody3D.new()
+	walls.name = "DiceWalls"
+	add_child(walls)
+	var wall_h := 8.0
+	var wall_defs := [
+		[Vector3(center.x, wall_h * 0.5, TRAY_MIN.y - 0.5), Vector3(size_x + 2, wall_h, 1)],
+		[Vector3(center.x, wall_h * 0.5, TRAY_MAX.y + 0.5), Vector3(size_x + 2, wall_h, 1)],
+		[Vector3(TRAY_MIN.x - 0.5, wall_h * 0.5, center.z), Vector3(1, wall_h, size_z + 2)],
+		[Vector3(TRAY_MAX.x + 0.5, wall_h * 0.5, center.z), Vector3(1, wall_h, size_z + 2)],
+		[Vector3(center.x, wall_h + 0.5, center.z), Vector3(size_x + 2, 1, size_z + 2)],
+	]
+	var wall_mat := PhysicsMaterial.new()
+	wall_mat.bounce = 0.4
+	wall_mat.friction = 0.3
+	walls.physics_material_override = wall_mat
+	for def in wall_defs:
+		var cs := CollisionShape3D.new()
+		var b := BoxShape3D.new()
+		b.size = def[1]
+		cs.shape = b
+		cs.position = def[0]
+		walls.add_child(cs)
+
+
+func _build_ground() -> void:
+	# 草地（スクロールしても端が見えないよう奥に長くしておく）
 	var noise := FastNoiseLite.new()
 	noise.frequency = 0.02
 	var grad := Gradient.new()
@@ -145,8 +235,9 @@ func _build_ground() -> void:
 	grass.uv1_scale = Vector3(6, 6, 1)
 	grass.roughness = 0.95
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(120, 120)
-	_mesh(plane, grass, Vector3(0, -0.02, 0))
+	plane.size = Vector2(120, 220)
+	grass.uv1_scale = Vector3(6, 11, 1)
+	_mesh(plane, grass, Vector3(0, -0.02, -50))
 
 
 func _build_arena() -> void:
@@ -241,30 +332,6 @@ func _build_dice_tray() -> void:
 			knob.height = 0.28
 			_mesh(knob, gold, Vector3(cx, h + 0.04, cz))
 
-	# 見えない壁（サイコロが外へ出ないように高めに）
-	var walls := StaticBody3D.new()
-	walls.name = "DiceWalls"
-	add_child(walls)
-	var wall_h := 8.0
-	var wall_defs := [
-		[Vector3(center.x, wall_h * 0.5, TRAY_MIN.y - 0.5), Vector3(size_x + 2, wall_h, 1)],
-		[Vector3(center.x, wall_h * 0.5, TRAY_MAX.y + 0.5), Vector3(size_x + 2, wall_h, 1)],
-		[Vector3(TRAY_MIN.x - 0.5, wall_h * 0.5, center.z), Vector3(1, wall_h, size_z + 2)],
-		[Vector3(TRAY_MAX.x + 0.5, wall_h * 0.5, center.z), Vector3(1, wall_h, size_z + 2)],
-		[Vector3(center.x, wall_h + 0.5, center.z), Vector3(size_x + 2, 1, size_z + 2)],
-	]
-	var wall_mat := PhysicsMaterial.new()
-	wall_mat.bounce = 0.4
-	wall_mat.friction = 0.3
-	walls.physics_material_override = wall_mat
-	for def in wall_defs:
-		var cs := CollisionShape3D.new()
-		var b := BoxShape3D.new()
-		b.size = def[1]
-		cs.shape = b
-		cs.position = def[0]
-		walls.add_child(cs)
-
 
 func _build_decorations() -> void:
 	var pillar_mat := StandardMaterial3D.new()
@@ -306,7 +373,7 @@ func _build_decorations() -> void:
 		light.omni_range = 6.0
 		light.light_energy = 2.2
 		light.position = pos + Vector3(0, height + 0.6, 0)
-		add_child(light)
+		_target.add_child(light)
 		_torch_lights.append(light)
 
 	# 木（低ポリ）
@@ -348,7 +415,11 @@ func _build_decorations() -> void:
 		rock.rings = 3
 		_mesh(rock, rock_mat, Vector3(sin(ang) * dist, 0.1, cos(ang) * dist))
 
-	# 遠景の山
+
+## 遠景の山（スクロールしない）
+func _build_mountains() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 777
 	var mountain_mat := StandardMaterial3D.new()
 	mountain_mat.albedo_color = Color(0.3, 0.3, 0.42)
 	mountain_mat.roughness = 1.0
@@ -368,5 +439,5 @@ func _mesh(mesh: Mesh, mat: Material, pos: Vector3) -> MeshInstance3D:
 	mi.mesh = mesh
 	mi.material_override = mat
 	mi.position = pos
-	add_child(mi)
+	_target.add_child(mi)
 	return mi

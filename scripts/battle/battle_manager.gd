@@ -23,6 +23,11 @@ var camera: BattleCamera
 var sound: SoundManager
 var last_dice_result: DiceResult
 var last_attack: AttackResult
+## 次のステージへ歩いて進んでいる途中か
+var is_marching := false
+
+## 次のステージへ進む演出の長さ（秒）
+const MARCH_DURATION := 2.6
 
 ## リトライで古いコルーチンが動き続けないようにするための世代番号
 var _battle_id := 0
@@ -88,8 +93,10 @@ func start_battle() -> void:
 	_battle_id += 1
 	var id := _battle_id
 	stage = progress.current_stage()
+	is_marching = false
 	field.apply_theme(stage.theme)
 	_spawn_actors()
+	dice.visible = true
 	dice.reset_to_rest()
 	camera.snap_default()
 	ui.reset_view()
@@ -101,9 +108,11 @@ func start_battle() -> void:
 	ui.show_message("")
 	stage_started.emit(stage)
 
+	ui.show_road(stage.index, progress.stage_count())
 	await ui.play_stage_intro(stage.title, stage.area_name, stage.is_boss)
 	if id != _battle_id:
 		return
+	ui.hide_road()
 	_set_state(BattleState.State.PLAYER_TURN)
 	ui.show_message("%sが あらわれた！" % enemy.display_name)
 
@@ -116,11 +125,44 @@ func _on_overlay_action(action: StringName) -> void:
 	match action:
 		&"next":
 			progress.advance()
-			start_battle()
+			_march_to_next_stage()
 		&"retry":
 			start_battle()
 		&"restart":
 			start_stage(0)
+
+
+## 敵を倒したあと、プレイヤーが次のステージへ歩いて進む演出。
+## 地面（アリーナ）がスクロールし、先に待っている次の敵が近づいてくる。空の色も次のステージへ変わっていく。
+func _march_to_next_stage() -> void:
+	_battle_id += 1
+	var id := _battle_id
+	var from_index := progress.stage_index - 1
+	stage = progress.current_stage()
+	is_marching = true
+	_set_state(BattleState.State.SETUP)
+	ui.hide_overlay()
+	ui.show_message("つぎのステージへ すすもう！")
+	ui.show_road(from_index, progress.stage_count())
+	ui.advance_road(stage.index, MARCH_DURATION)
+	dice.visible = false
+	camera.focus_default()
+
+	# 次の敵を先のアリーナに置いておき、地面と一緒に近づいてくるようにする
+	var next_enemy := EnemyActor.new()
+	next_enemy.name = "NextEnemy"
+	next_enemy.setup(EnemyDatabase.get_enemy(stage.enemy_no))
+	next_enemy.position = field.enemy_spot - Vector3(0, 0, field.SEGMENT_LENGTH)
+	_actors_root.add_child(next_enemy)
+	var t := create_tween()
+	t.tween_property(next_enemy, "position:z", field.enemy_spot.z, MARCH_DURATION).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+	field.tween_theme(stage.theme, MARCH_DURATION)
+	player.play_walk(MARCH_DURATION, func() -> void: sound.play(&"step", -6.0, randf_range(0.85, 1.15)))
+	await field.play_advance(MARCH_DURATION)
+	if id != _battle_id:
+		return
+	start_battle()
 
 
 func _spawn_actors() -> void:
