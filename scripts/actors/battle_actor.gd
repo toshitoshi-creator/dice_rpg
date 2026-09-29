@@ -11,6 +11,8 @@ signal died
 @export var max_hp: int = 100
 @export var attack: int = 1
 @export var defense: int = 0
+## 攻撃のダメージに足される値（武器の攻撃力）
+@export var attack_bonus: int = 0
 ## 攻撃時に飛び跳ねる高さ
 @export var attack_jump_height: float = 0.0
 

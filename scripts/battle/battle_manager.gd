@@ -37,10 +37,18 @@ var _actors_root: Node3D
 var _fx_root: Node3D
 ## カットインで使う主人公のイラスト
 const CUTIN_PORTRAIT := preload("res://assets/images/hero_cutin.jpg")
+## 装備の保存先（Web 版ではブラウザの中に保存される）
+const SAVE_PATH := "user://save.cfg"
+## false にすると装備を保存・読み込みしない（テスト用。add_child 前に設定する）
+var use_save := true
+## スペシャル技でダメージが何倍になるか（マジック・ブーストなど）
+var _special_multiplier := 1.0
 
 
 func _ready() -> void:
 	randomize()
+	if use_save:
+		progress.load_save(SAVE_PATH)
 	field = BattleField.new()
 	field.name = "BattleField"
 	add_child(field)
@@ -71,6 +79,8 @@ func _ready() -> void:
 	add_child(ui)
 	ui.roll_pressed.connect(request_roll)
 	ui.special_pressed.connect(request_special)
+	ui.equip_pressed.connect(open_equipment)
+	ui.equipment.equip_requested.connect(change_equipment)
 
 	ui.overlay_action.connect(_on_overlay_action)
 
@@ -78,6 +88,8 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if ui.is_equipment_open():
+		return
 	if event.is_action_pressed("ui_accept"):
 		if BattleState.can_roll(state):
 			request_roll()
@@ -101,6 +113,7 @@ func start_battle() -> void:
 	stage = progress.current_stage()
 	is_marching = false
 	special_active = false
+	_special_multiplier = 1.0
 	progress.stage_start_gauge = progress.special_gauge
 	dice.restore_normal_faces()
 	field.apply_theme(stage.theme)
@@ -185,7 +198,8 @@ func _spawn_actors() -> void:
 
 	player = PlayerActor.new()
 	player.name = "Player"
-	player.setup_stats("PLAYER", progress.player_max_hp(), 1, 0)
+	player.setup_stats("PLAYER", progress.total_max_hp(), 1, progress.defense_bonus())
+	player.attack_bonus = progress.attack_bonus()
 	player.position = field.player_spot
 	_actors_root.add_child(player)
 
@@ -199,6 +213,7 @@ func _spawn_actors() -> void:
 func _set_state(new_state: BattleState.State) -> void:
 	state = new_state
 	ui.set_roll_enabled(BattleState.can_roll(state))
+	ui.set_equip_enabled(can_change_equipment())
 	_update_special_ui()
 	state_changed.emit(state)
 
@@ -212,7 +227,7 @@ func _update_special_ui() -> void:
 # ------------------------------------------------------------------
 ## 「サイコロを振る」。PLAYER_TURN 以外では何もしない（連打・割り込み対策）。
 func request_roll() -> void:
-	if not BattleState.can_roll(state):
+	if not BattleState.can_roll(state) or ui.is_equipment_open():
 		return
 	_set_state(BattleState.State.ROLLING)
 	_run_player_turn(_battle_id)
@@ -220,7 +235,7 @@ func request_roll() -> void:
 
 ## スペシャル技。ゲージが満タンのプレイヤーのターンだけ使える。
 func request_special() -> void:
-	if not BattleState.can_roll(state) or not progress.is_special_ready():
+	if not BattleState.can_roll(state) or not progress.is_special_ready() or ui.is_equipment_open():
 		return
 	_set_state(BattleState.State.ROLLING)
 	_run_special(_battle_id)
@@ -264,9 +279,16 @@ func _activate_special(weapon: Dictionary, color: Color) -> void:
 			dice.set_face_values(faces, true)
 			HitEffect.spawn(_fx_root, dice.global_position, color, 1.8)
 			sound.play(&"critical")
-			ui.show_message("サイコロが 4・5・6 だけになった！")
+			ui.show_message(weapon.get("special_message", ""))
 			await dice.play_result_highlight(color)
 			await _wait(0.5)
+		&"double_damage":
+			_special_multiplier = float(weapon.get("special_multiplier", 2.0))
+			HitEffect.spawn(_fx_root, player.global_position + Vector3(0, 1.2, 0), color, 1.8)
+			player.flash(color, 0.8)
+			sound.play(&"critical")
+			ui.show_message(weapon.get("special_message", ""))
+			await _wait(0.9)
 
 
 func _run_player_turn(id: int) -> void:
@@ -282,6 +304,9 @@ func _run_player_turn(id: int) -> void:
 	# --- 出目確定：一瞬タメる ---
 	_set_state(BattleState.State.RESULT)
 	var attack_result := damage_calculator.calculate_player_attack(roll, player, enemy)
+	if _special_multiplier != 1.0:
+		attack_result.amount = roundi(attack_result.amount * _special_multiplier)
+		_special_multiplier = 1.0
 	last_attack = attack_result
 	sound.play(&"critical" if attack_result.is_critical else &"button")
 	await dice.play_result_highlight(Color(1, 0.7, 0.1) if attack_result.is_critical else Color(1, 1, 0.6))
@@ -391,10 +416,15 @@ func _run_victory(id: int) -> void:
 		return
 	camera.focus_default()
 	sound.play(&"victory")
+	var rewards: Array[String] = []
+	for pair in progress.claim_stage_rewards(progress.stage_index):
+		rewards.append(String(EquipmentDatabase.get_item(pair[0], pair[1])["name"]))
+	if not rewards.is_empty():
+		sound.play(&"powerup")
 	if is_final:
-		ui.show_game_clear(enemy.display_name)
+		ui.show_game_clear(enemy.display_name, rewards)
 	else:
-		ui.show_stage_clear(enemy.display_name, progress.player_max_hp(), progress.player_max_hp(progress.stage_index + 1))
+		ui.show_stage_clear(enemy.display_name, progress.total_max_hp(), progress.total_max_hp(progress.stage_index + 1), rewards)
 
 
 func _run_defeat(id: int) -> void:
@@ -406,6 +436,38 @@ func _run_defeat(id: int) -> void:
 	camera.focus_default()
 	sound.play(&"defeat")
 	ui.show_defeat(progress.stage_index > 0)
+
+
+# ------------------------------------------------------------------
+# 装備
+# ------------------------------------------------------------------
+## 装備を変えられるのは、自分のターン中と結果画面（勝ち・負け）のとき。
+func can_change_equipment() -> bool:
+	return BattleState.can_roll(state) or BattleState.is_battle_over(state)
+
+
+func open_equipment() -> void:
+	if not can_change_equipment() or ui.is_equipment_open():
+		return
+	sound.play(&"button")
+	ui.open_equipment(progress)
+
+
+## 装備を付けかえ、戦闘中ならすぐにプレイヤーの能力へ反映する。
+func change_equipment(slot: StringName, id: StringName) -> void:
+	if not can_change_equipment() or not progress.equip(slot, id):
+		return
+	sound.play(&"button", 0.0, 1.3)
+	if player == null:
+		return
+	player.attack_bonus = progress.attack_bonus()
+	player.defense = progress.defense_bonus()
+	var new_max := progress.total_max_hp()
+	if new_max != player.max_hp and not player.is_dead():
+		# 最大 HP が増えた分（減った分）だけ今の HP も増やす（1 は残す）
+		player.hp = clampi(player.hp + new_max - player.max_hp, 1, new_max)
+		player.max_hp = new_max
+		ui.player_bar.set_values(player.hp, player.max_hp)
 
 
 func _on_dice_impact(strength: float) -> void:

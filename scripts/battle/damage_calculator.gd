@@ -24,7 +24,7 @@ var minimum_damage: int = 1
 func calculate_player_attack(roll: DiceResult, attacker: BattleActor, defender: BattleActor) -> AttackResult:
 	var base: int = dice_damage.get(roll.value, 0)
 	var is_critical := critical_faces.has(roll.value)
-	var raw := float(base * attacker.attack)
+	var raw := float(base * attacker.attack + attacker.attack_bonus)
 	if is_critical:
 		raw *= critical_multiplier
 	var result := AttackResult.new(0, is_critical, roll.value)

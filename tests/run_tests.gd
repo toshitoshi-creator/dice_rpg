@@ -30,15 +30,18 @@ func _run() -> void:
 	await _test_bestiary()
 	await _test_custom_models()
 	_test_special_gauge_math()
+	_test_equipment_data()
 
 	var scene: PackedScene = load(MAIN_SCENE)
 	manager = scene.instantiate() as BattleManager
+	manager.use_save = false
 	root.add_child(manager)
 	await _frames(10)
 
 	await _test_launch()
 	await _test_full_turn()
 	await _test_special()
+	await _test_equipment()
 	await _test_defeat_stage1()
 	await _test_stage_progression()
 	await _test_defeat_later_stage()
@@ -341,6 +344,93 @@ func _test_special_gauge_math() -> void:
 	var w := WeaponDatabase.get_weapon(p.weapon_id)
 	var faces: Array = w["special_faces"]
 	_check(w["special_type"] == &"dice_faces" and faces.size() == 6 and faces.all(func(v): return v >= 4 and v <= 6), "default sword (%s): special '%s' makes every face 4-6" % [w["name"], w["special_name"]])
+
+
+func _test_equipment_data() -> void:
+	print("\n[Unit] Equipment data")
+	var p := GameProgress.new()
+	var ok := true
+	for slot in EquipmentDatabase.SLOTS:
+		if EquipmentDatabase.items(slot).size() < 3 or not p.is_owned(slot, p.equipped[slot]):
+			ok = false
+	_check(ok, "3 slots (weapon / shield / armor), each with 3+ items and a starting item equipped")
+	_check(p.attack_bonus() == 0 and p.defense_bonus() == 0 and p.hp_bonus() == 0 and p.weapon_id == WeaponDatabase.DEFAULT_WEAPON, "starting equipment adds nothing (base stats)")
+	_check(not p.equip(&"shield", &"steel_shield"), "cannot equip an item you do not have")
+	var got := p.claim_stage_rewards(0)
+	_check(got.size() >= 1 and p.is_owned(&"shield", &"steel_shield"), "clearing STAGE 1 gives はがねのたて")
+	_check(p.claim_stage_rewards(0).is_empty(), "rewards are only given once")
+	_check(p.equip(&"shield", &"steel_shield") and p.defense_bonus() == 2, "equipping はがねのたて gives DEF +2")
+	for i in StageDatabase.count():
+		p.claim_stage_rewards(i)
+	p.equip(&"armor", &"hero_armor")
+	p.equip(&"weapon", &"steel_axe")
+	_check(p.total_max_hp(0) == 160 and p.attack_bonus() == 5, "ゆうしゃのよろい: max HP +60, はがねのオノ: ATK +5")
+	var axe := p.weapon()
+	_check(axe["special_type"] == &"dice_faces" and (axe["special_faces"] as Array).all(func(v): return v == 1 or v == 6), "each weapon has its own special (axe: %s)" % axe["special_name"])
+	var calc := DamageCalculator.new()
+	var hero := BattleActor.new()
+	hero.attack_bonus = 5
+	var foe := BattleActor.new()
+	_check(calc.calculate_player_attack(DiceResult.new(3), hero, foe).amount == 20, "weapon ATK is added to the dice damage (3 -> 15 + 5)")
+	hero.free()
+	foe.free()
+	var path := "user://test_save.cfg"
+	p.save_path = path
+	p.save()
+	var q := GameProgress.new()
+	q.load_save(path)
+	_check(q.weapon_id == &"steel_axe" and q.equipped[&"armor"] == &"hero_armor" and q.is_owned(&"weapon", &"magic_staff"), "equipment and items are saved and loaded")
+	p.reset()
+	_check(p.is_owned(&"armor", &"hero_armor") and p.weapon_id == &"steel_axe", "'restart from stage 1' keeps your items")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func _test_equipment() -> void:
+	print("\n[Test] Equipment screen")
+	await _wait_state(BattleState.State.PLAYER_TURN, 10.0)
+	_check(manager.ui.special_button.text == "SP", "special button says SP")
+	_check(not manager.ui.equip_button.disabled, "equipment button is usable on your turn")
+	manager.ui.equip_button.pressed.emit()
+	await _frames(3)
+	var screen := manager.ui.equipment
+	_check(manager.ui.is_equipment_open(), "equipment screen opens")
+	manager.request_roll()
+	_check(manager.state == BattleState.State.PLAYER_TURN, "cannot roll while the equipment screen is open")
+	_check(screen.get_card(&"steel_axe") != null and screen.get_card(&"steel_axe").text.contains("？？？"), "items you do not have yet are shown as ？？？")
+	for i in StageDatabase.count():
+		manager.progress.claim_stage_rewards(i)
+	var hp_before := manager.player.hp
+	var max_before := manager.player.max_hp
+	screen.show_slot(&"armor")
+	screen.get_card(&"chain_mail").pressed.emit()
+	_check(manager.progress.equipped[&"armor"] == &"chain_mail" and manager.player.max_hp == max_before + 30 and manager.player.hp == hp_before + 30, "くさりかたびら: max HP +30 right away")
+	screen.show_slot(&"shield")
+	screen.get_card(&"hero_shield").pressed.emit()
+	_check(manager.player.defense == 4, "ゆうしゃのたて: DEF 4 right away")
+	screen.show_slot(&"weapon")
+	screen.get_card(&"magic_staff").pressed.emit()
+	_check(manager.player.attack_bonus == 2 and manager.progress.weapon()["special_type"] == &"double_damage", "まほうのつえ: ATK +2 and a different special")
+	await _seconds(0.3)
+	await _shot("13_equipment.png")
+	screen.close()
+	_check(not manager.ui.is_equipment_open(), "equipment screen closes")
+
+	# まほうのつえのスペシャル技: ダメージ 2 倍
+	_make_enemy_tough()
+	var enemy_hp := manager.enemy.hp
+	manager.progress.special_gauge = GameProgress.SPECIAL_MAX
+	manager.request_special()
+	var ok := await _wait_state(BattleState.State.ENEMY_TURN, 25.0)
+	var v := manager.last_dice_result.value
+	var expected: int = (manager.damage_calculator.dice_damage[v] + 2) * 2
+	_check(ok and enemy_hp - manager.enemy.hp == expected, "マジック・ブースト doubles the damage (%d -> %d)" % [v, enemy_hp - manager.enemy.hp])
+	await _wait_state(BattleState.State.PLAYER_TURN, 10.0)
+	# 元の装備に戻す（以降のテストは基本の能力で行う）
+	for slot in EquipmentDatabase.SLOTS:
+		manager.change_equipment(slot, EquipmentDatabase.default_item(slot))
+	_check(manager.player.attack_bonus == 0 and manager.player.defense == 0 and manager.player.max_hp == 100, "back to the starting equipment")
+	manager.progress.special_gauge = 0.0
+	manager._update_special_ui()
 
 
 func _test_special() -> void:

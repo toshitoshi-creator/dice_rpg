@@ -4,6 +4,8 @@ extends CanvasLayer
 
 signal roll_pressed
 signal special_pressed
+## 「そうび」ボタン（バトル中・結果画面）
+signal equip_pressed
 ## 結果画面のボタン（&"next" = 次のステージ, &"retry" = 再挑戦, &"restart" = 最初から）
 signal overlay_action(action: StringName)
 
@@ -11,6 +13,9 @@ var enemy_bar: HpBar
 var player_bar: HpBar
 var roll_button: Button
 var special_button: Button
+var equip_button: Button
+## 装備画面
+var equipment: EquipmentScreen
 
 var _root: Control
 var _message_label: Label
@@ -52,6 +57,8 @@ func _ready() -> void:
 	_build_overlay()
 	_cutin = SpecialCutIn.new()
 	_root.add_child(_cutin)
+	equipment = EquipmentScreen.new()
+	_root.add_child(equipment)
 
 
 func _make_theme() -> Theme:
@@ -92,11 +99,28 @@ func _build_bottom() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
 	panel.add_child(box)
+	var head := HBoxContainer.new()
+	box.add_child(head)
 	var tag := Label.new()
 	tag.text = "PLAYER"
 	tag.add_theme_font_size_override("font_size", 18)
 	tag.add_theme_color_override("font_color", Color(0.55, 0.75, 1))
-	box.add_child(tag)
+	tag.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(tag)
+	equip_button = Button.new()
+	equip_button.text = "そうび"
+	equip_button.custom_minimum_size = Vector2(150, 56)
+	equip_button.focus_mode = Control.FOCUS_NONE
+	equip_button.add_theme_font_size_override("font_size", 26)
+	for state_name in ["font_color", "font_hover_color", "font_pressed_color"]:
+		equip_button.add_theme_color_override(state_name, Color(1, 0.95, 0.85))
+	equip_button.add_theme_color_override("font_disabled_color", Color(0.6, 0.58, 0.62))
+	equip_button.add_theme_stylebox_override("normal", _small_button_style(Color(0.3, 0.42, 0.75)))
+	equip_button.add_theme_stylebox_override("hover", _small_button_style(Color(0.38, 0.5, 0.85)))
+	equip_button.add_theme_stylebox_override("pressed", _small_button_style(Color(0.24, 0.34, 0.62)))
+	equip_button.add_theme_stylebox_override("disabled", _small_button_style(Color(0.28, 0.27, 0.32)))
+	equip_button.pressed.connect(func() -> void: equip_pressed.emit())
+	head.add_child(equip_button)
 	player_bar = HpBar.new("PLAYER", Color(0.3, 0.85, 0.45))
 	box.add_child(player_bar)
 
@@ -160,10 +184,10 @@ func _build_bottom() -> void:
 	buttons.add_child(roll_button)
 
 	special_button = Button.new()
-	special_button.text = "SP\n0%"
+	special_button.text = "SP"
 	special_button.custom_minimum_size = Vector2(190, 112)
 	special_button.focus_mode = Control.FOCUS_NONE
-	special_button.add_theme_font_size_override("font_size", 28)
+	special_button.add_theme_font_size_override("font_size", 48)
 	for state_name in ["font_color", "font_hover_color", "font_pressed_color"]:
 		special_button.add_theme_color_override(state_name, Color(1, 1, 1))
 	special_button.add_theme_color_override("font_outline_color", Color(0.45, 0.05, 0.05))
@@ -295,6 +319,16 @@ func _make_panel() -> PanelContainer:
 	return panel
 
 
+func _small_button_style(color: Color) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = color
+	s.border_color = color.darkened(0.45)
+	s.set_border_width_all(3)
+	s.border_width_bottom = 6
+	s.set_corner_radius_all(12)
+	return s
+
+
 func _button_style(color: Color) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
 	s.bg_color = color
@@ -319,6 +353,19 @@ func bind_actors(player: BattleActor, enemy: BattleActor) -> void:
 	enemy.hp_changed.connect(enemy_bar.animate_to)
 
 
+func set_equip_enabled(enabled: bool) -> void:
+	equip_button.disabled = not enabled
+
+
+## 装備画面を開く。
+func open_equipment(progress: GameProgress) -> void:
+	equipment.open(progress)
+
+
+func is_equipment_open() -> bool:
+	return equipment.is_open()
+
+
 func set_roll_enabled(enabled: bool) -> void:
 	roll_button.disabled = not enabled
 	if _button_tween and _button_tween.is_valid():
@@ -338,7 +385,6 @@ func update_special(value: float, full: bool, can_use: bool) -> void:
 	t.tween_property(_sp_bar, "value", value, 0.4).set_trans(Tween.TRANS_SINE)
 	_sp_label.text = "%d%%" % floori(value)
 	special_button.disabled = not (full and can_use)
-	special_button.text = "スペシャル！" if full else "SP\n%d%%" % floori(value)
 	if full != _sp_ready:
 		_sp_ready = full
 		if _sp_tween and _sp_tween.is_valid():
@@ -406,17 +452,25 @@ func show_dice_result(value: int, is_critical: bool) -> void:
 
 
 ## ステージクリア画面。
-func show_stage_clear(enemy_name: String, old_max_hp: int, new_max_hp: int) -> void:
+## rewards: 手に入れた装備の名前。
+func show_stage_clear(enemy_name: String, old_max_hp: int, new_max_hp: int, rewards: Array[String] = []) -> void:
 	_show_overlay("STAGE CLEAR!", "%s DEFEATED" % enemy_name, Color(1, 0.85, 0.25),
-		"LEVEL UP!  最大HP %d → %d" % [old_max_hp, new_max_hp],
-		[{"text": "次のステージへ", "action": &"next"}])
+		"LEVEL UP!  最大HP %d → %d" % [old_max_hp, new_max_hp] + _rewards_text(rewards),
+		[{"text": "次のステージへ", "action": &"next"}, {"text": "そうび", "action": &"equip", "secondary": true}])
+
+
+func _rewards_text(rewards: Array[String]) -> String:
+	var text := ""
+	for r in rewards:
+		text += "\n%s を てにいれた！" % r
+	return text
 
 
 ## 全ステージクリア画面。
-func show_game_clear(enemy_name: String) -> void:
+func show_game_clear(enemy_name: String, rewards: Array[String] = []) -> void:
 	_show_overlay("GAME CLEAR!", "%s DEFEATED" % enemy_name, Color(1, 0.85, 0.25),
-		"全ステージ制覇！おめでとう！",
-		[{"text": "もう一度遊ぶ", "action": &"restart"}])
+		"全ステージ制覇！おめでとう！" + _rewards_text(rewards),
+		[{"text": "もう一度遊ぶ", "action": &"restart"}, {"text": "そうび", "action": &"equip", "secondary": true}])
 
 
 ## 敗北画面。ステージ 2 以降では「最初から」も選べる。
@@ -424,6 +478,7 @@ func show_defeat(can_restart_from_first: bool) -> void:
 	var buttons: Array = [{"text": "このステージに再挑戦" if can_restart_from_first else "もう一度戦う", "action": &"retry"}]
 	if can_restart_from_first:
 		buttons.append({"text": "最初から", "action": &"restart", "secondary": true})
+	buttons.append({"text": "そうび", "action": &"equip", "secondary": true})
 	_show_overlay("DEFEAT", "YOU WERE DEFEATED", Color(0.75, 0.2, 0.25), "", buttons)
 
 
@@ -575,6 +630,10 @@ func reset_view() -> void:
 
 
 func _on_overlay_button_pressed(action: StringName) -> void:
+	# 「そうび」は画面を開くだけなので、ほかのボタンは押せるまま
+	if action == &"equip":
+		equip_pressed.emit()
+		return
 	# 連打で二重に実行しないよう、押したら全ボタンを無効化
 	for child in _overlay_buttons.get_children():
 		if child is Button:
