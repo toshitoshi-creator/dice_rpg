@@ -320,7 +320,7 @@ func _test_custom_models() -> void:
 	var hero := PlayerActor.new()
 	holder.add_child(hero)
 	var uses_hero := hero.find_child("CustomModel", true, false) != null
-	_check(CustomModels.player_path() != "" and uses_hero and hero._sword_pivot != null and String(hero._sword_pivot.name) == "Weapon", "the hero (assets/models/player.glb) is used as the player and swings his sword")
+	_check(CustomModels.player_path() != "" and uses_hero and hero._sword_pivot != null and String(hero._sword_pivot.name).begins_with("Weapon"), "the hero (assets/models/player.glb) is used as the player and swings his sword")
 	holder.queue_free()
 	await _frames(2)
 

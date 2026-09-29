@@ -16,19 +16,33 @@ Claude にスクリプトを頼む → Blender で実行 → 手直し（任意�
 
 | ファイル | 作られるもの | 書き出されるファイル |
 |---|---|---|
-| `tools/blender/make_player.py` | 主人公（勇者・設定資料をもとにしたもの。ゲームに入っている） | `player.glb` |
+| `tools/blender/make_hero.py` | 主人公（勇者・3 頭身。設定資料をもとにしたもの。ゲームに入っている） | `player.glb` と `hero.blend` |
 | `tools/blender/make_enemy_slime.py` | 敵のお手本（スライム） | `slime.glb` |
 
 1. Blender を開く
 2. 画面上のタブから **Scripting** を選ぶ
 3. テキストエディタの **＋ 新規** を押し、スクリプトの中身をすべて貼り付ける
 4. **▶（スクリプト実行）** を押す
-5. `DiceBattle_Player`（または `DiceBattle_Enemy`）コレクションにモデルができ、
+5. `Hero`（敵は `DiceBattle_Enemy`）コレクションにモデルができ、
    `.glb` が書き出される。場所は **.blend を保存していればその隣、未保存ならホームフォルダ**
-   （スクリプト先頭の `EXPORT_DIR` で変更可）
+   （スクリプト先頭の `EXPORT_DIR`、勇者は `OUTPUT_DIR` で変更可）
 
 何度実行しても、前回そのスクリプトが作ったものだけを消して作り直します。
 スクリプト先頭の `COLORS` を書き換えると色を変えられます。
+
+### 勇者スクリプト（make_hero.py）について
+
+- **実行すると今のシーンのオブジェクトをすべて消してから作ります**（先頭の `RESET_SCENE = False` にすると `Hero` コレクションだけ作り直し）
+- `Hero` コレクションの中に、キャラ / 顔 / 髪 / 装備 / リグ / カメラ・ライト のコレクションができます
+- パーツ名は `Hero_Head`, `Hero_Hair`, `Hero_Eyes_L`, `Hero_Tunic`, `Hero_Cape`, `Hero_Sword_Blade`, `Hero_Shield_Emblem` など、
+  マテリアル名は `MAT_Skin`, `MAT_BlueCloth`, `MAT_RedCape`, `MAT_Gold`, `MAT_BlueGem` など。色と質感は先頭の `MATERIALS` で変えられます
+- `POSE = "A"` で A ポーズ、`"IDLE"` で剣と盾を構えた待機ポーズ（肩・首・腰・脚の支点 Empty を回しているだけなので、Blender で回して調整もできます）
+- マントは Cloth Simulation で形を作ってからメッシュにしているので、完成品はシミュレーションに依存しません（`USE_CLOTH_SIM = False` で手続き生成）
+- カメラ: `Cam_Front` / `Cam_Side` / `Cam_Back` / `Cam_Front34`（平行投影の確認用）と `Cam_Preview`（斜めから）。ライトは Key / Fill / Rim の 3 灯
+- アーマチュア `Hero_Armature`（root, pelvis, spine, chest, neck, head, upper_arm / forearm / hand / thigh / shin / foot の左右）付き。
+  メッシュとの結び付け（ウェイト）は第 2 段階の予定です（`BIND_TO_ARMATURE = True` でボーンへの簡易親子付け）
+- 部位ごとに関数が分かれているので（`build_face`, `build_hair`, `build_sword`, `build_shield`, `build_cape` …）、
+  「髪だけもっと○○に」のような部分的な作り直しがしやすくなっています
 
 ## 2. 手直しする（任意）
 
@@ -84,9 +98,9 @@ living_armor, gargoyle, dragon, evil_eye, mimic, reaper, demon_lord
 | `Tail` | しっぽを左右に振る（原点 = 付け根） |
 
 中身の無い **Empty** を作って `Weapon` と名付け、腕や武器をその子にするのがおすすめです
-（`make_player.py` がその作り方になっています）。
+（`make_hero.py` では右腕と剣をまとめた `Weapon_Arm_R` がそれです）。
 
-`make_player.py` の勇者の見た目（4 方向）: [blender/hero_preview.jpg](blender/hero_preview.jpg)
+`make_hero.py` の勇者の見た目（4 方向）: [blender/hero_preview.jpg](blender/hero_preview.jpg)
 体全体の動き（ぷるぷる・ふわふわ・のけぞり・踏み込み・撃破）はゲーム側が付けます。
 
 ### 色違い用のマテリアル名（役割名）
@@ -111,7 +125,7 @@ Blender で「idle」という名前のアクション（アニメーション�
 ## 5. Claude への頼み方の例
 
 - 「No.13 ゴブリンの Blender スクリプトを make_enemy_slime.py と同じ形式で作って」
-- 「make_player.py の主人公を、魔法使いの見た目に変えて（とんがり帽子と杖）」
+- 「make_hero.py の主人公を、魔法使いの見た目に変えて（とんがり帽子と杖）」
 - 「このスクリーンショットの頭をもっと大きく、目を丸くして」（Blender の画面を貼り付ける）
 - 「assets/models/enemies に wolf.glb を置いたので、ゲームで確認して」
 
