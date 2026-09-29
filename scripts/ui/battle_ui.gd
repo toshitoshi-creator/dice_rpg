@@ -3,6 +3,9 @@ extends CanvasLayer
 ## バトル画面の 2D UI。ゲームロジックは持たず、表示とボタン入力の通知だけを行う。
 
 signal roll_pressed
+## 「サイコロを振る」を押しはじめた / はなした（長押しでサイコロが高速回転する）
+signal roll_down
+signal roll_up
 signal special_pressed
 ## 「そうび」ボタン（バトル中・結果画面）
 signal equip_pressed
@@ -11,7 +14,13 @@ signal home_pressed
 ## 結果画面のボタン（&"next" = 次のステージ, &"retry" = 再挑戦, &"stages" = ステージ選択へ, &"home" = ホームへ）
 signal overlay_action(action: StringName)
 
+## 1 体目の敵の HP バー（enemy_bars[0]）
 var enemy_bar: HpBar
+## 敵ごとの HP バー
+var enemy_bars: Array[HpBar] = []
+var burst: BurstBanner
+var _enemy_box: VBoxContainer
+var _roll_text := "サイコロを振る"
 var player_bar: HpBar
 var roll_button: Button
 var special_button: Button
@@ -58,6 +67,8 @@ func _ready() -> void:
 	_build_bottom()
 	_build_center()
 	_build_overlay()
+	burst = BurstBanner.new()
+	_root.add_child(burst)
 	_cutin = SpecialCutIn.new()
 	_root.add_child(_cutin)
 	equipment = EquipmentScreen.new()
@@ -87,8 +98,12 @@ func _build_top() -> void:
 	_stage_tag.add_theme_font_size_override("font_size", 20)
 	_stage_tag.add_theme_color_override("font_color", Color(1, 0.55, 0.55))
 	box.add_child(_stage_tag)
+	_enemy_box = VBoxContainer.new()
+	_enemy_box.add_theme_constant_override("separation", 6)
+	box.add_child(_enemy_box)
 	enemy_bar = HpBar.new("SLIME", Color(0.9, 0.3, 0.35))
-	box.add_child(enemy_bar)
+	_enemy_box.add_child(enemy_bar)
+	enemy_bars = [enemy_bar]
 
 
 func _build_bottom() -> void:
@@ -199,6 +214,8 @@ func _build_bottom() -> void:
 	roll_button.add_theme_stylebox_override("pressed", _button_style(Color(0.9, 0.62, 0.15)))
 	roll_button.add_theme_stylebox_override("disabled", _button_style(Color(0.5, 0.47, 0.44)))
 	roll_button.pressed.connect(func() -> void: roll_pressed.emit())
+	roll_button.button_down.connect(func() -> void: roll_down.emit())
+	roll_button.button_up.connect(func() -> void: roll_up.emit())
 	roll_button.resized.connect(func() -> void: roll_button.pivot_offset = roll_button.size * 0.5)
 	roll_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	buttons.add_child(roll_button)
@@ -250,8 +267,8 @@ func _build_center() -> void:
 	_road = RoadMap.new()
 	_road.anchor_left = 0.5
 	_road.anchor_right = 0.5
-	_road.anchor_top = 0.132
-	_road.anchor_bottom = 0.132
+	_road.anchor_top = 0.26
+	_road.anchor_bottom = 0.26
 	_road.offset_left = -220
 	_road.offset_right = 220
 	_road.offset_bottom = 72
@@ -364,13 +381,50 @@ func _button_style(color: Color) -> StyleBoxFlat:
 # ------------------------------------------------------------------
 # 外部から呼ぶ表示 API
 # ------------------------------------------------------------------
-func bind_actors(player: BattleActor, enemy: BattleActor) -> void:
+## enemies: 敵 1 体でも複数でもよい（配列）
+func bind_actors(player: BattleActor, enemies: Array) -> void:
 	player_bar.set_title(player.display_name)
 	player_bar.set_values(player.hp, player.max_hp)
-	enemy_bar.set_title(enemy.display_name)
-	enemy_bar.set_values(enemy.hp, enemy.max_hp)
 	player.hp_changed.connect(player_bar.animate_to)
-	enemy.hp_changed.connect(enemy_bar.animate_to)
+	for bar in enemy_bars:
+		_enemy_box.remove_child(bar)
+		bar.queue_free()
+	enemy_bars.clear()
+	for e in enemies:
+		var bar := HpBar.new(e.display_name, Color(0.9, 0.3, 0.35))
+		bar.set_compact(enemies.size() > 1)
+		_enemy_box.add_child(bar)
+		bar.set_values(e.hp, e.max_hp)
+		e.hp_changed.connect(bar.animate_to)
+		enemy_bars.append(bar)
+	enemy_bar = enemy_bars[0]
+
+
+## いま攻撃が当たる敵（index）に ▶ を付ける。たおれた敵は暗くする。
+func set_target(index: int, alive: Array) -> void:
+	for i in enemy_bars.size():
+		var bar := enemy_bars[i]
+		bar.modulate = Color.WHITE if (i < alive.size() and alive[i]) else Color(1, 1, 1, 0.35)
+		var title: String = bar.get_meta(&"base_title", "")
+		if title == "":
+			title = bar._name_label.text
+			bar.set_meta(&"base_title", title)
+		bar.set_title(("▶ " if i == index and enemy_bars.size() > 1 else "") + title)
+
+
+## 長押し中のサイコロをためている量（0〜1）。-1 で元にもどす。
+func set_charge(ratio: float) -> void:
+	if ratio < 0.0:
+		roll_button.text = _roll_text
+		roll_button.modulate = Color.WHITE
+		return
+	roll_button.text = "はなして なげる！" if ratio < 1.0 else "MAX！ はなして なげる！"
+	roll_button.modulate = Color(1, 1, 1).lerp(Color(1.5, 1.2, 0.6), ratio)
+
+
+## クリティカル・ゾロ目の派手な演出（終わるまで await できる）
+func play_burst(title: String, subtitle: String, color: Color, rainbow: bool = false, strength: float = 1.0) -> void:
+	await burst.play(title, subtitle, color, rainbow, strength)
 
 
 func set_equip_enabled(enabled: bool) -> void:

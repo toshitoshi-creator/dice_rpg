@@ -8,8 +8,10 @@ extends Resource
 @export var title: String = "STAGE 1"
 ## エリア名（イントロで表示）
 @export var area_name: String = ""
-## 出てくる敵の図鑑番号（EnemyDatabase の No.）
+## 出てくる敵の図鑑番号（EnemyDatabase の No.）。グループのときは中心になる敵（ボスステージはボス）
 @export var enemy_no: int = 1
+## グループで出てくる敵の図鑑番号（左から順。攻撃はこの順番に当たる）
+@export var enemy_nos: Array[int] = []
 @export var is_boss: bool = false
 ## BattleField.apply_theme() に渡す見た目テーマ
 @export var theme: StringName = &"day"

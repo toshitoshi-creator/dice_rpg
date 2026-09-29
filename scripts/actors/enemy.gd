@@ -5,6 +5,11 @@ extends BattleActor
 ## ここでは大きさの自動調整と待機・攻撃モーションを担当する。
 
 var data: EnemyData
+## 大きさの倍率（3 体並ぶときは少し小さくする。add_child 前に設定）
+var size_scale := 1.0
+## たおしたときにもらえる EXP・ゴールド（ステージで決まる）
+var reward_exp := 0
+var reward_gold := 0
 
 var _parts: Dictionary = {}
 ## モデルの上端・前端（拡大縮小後、足元からの距離）
@@ -17,6 +22,16 @@ func setup(p_data: EnemyData) -> void:
 	data = p_data
 	setup_stats(data.display_name, data.max_hp, data.attack, data.defense)
 	attack_jump_height = _jump_height_for(data.idle_style, data.is_boss)
+	reward_exp = data.exp_points
+
+
+## ステージで決まったステータスにする（グループの敵は 1 体あたりが少し弱い）。
+func apply_stats(stats: Dictionary) -> void:
+	max_hp = int(stats.get("max_hp", max_hp))
+	hp = max_hp
+	attack = int(stats.get("attack", attack))
+	reward_exp = int(stats.get("exp", reward_exp))
+	reward_gold = int(stats.get("gold", reward_gold))
 
 
 static func _jump_height_for(style: StringName, is_boss: bool) -> float:
@@ -59,7 +74,7 @@ func _build_model() -> void:
 	var width := maxf(aabb.size.x, 0.05)
 	var target_h := data.target_height if data else 1.6
 	var max_w := data.max_width if data else 2.6
-	var s := minf(target_h / height, max_w / width)
+	var s := minf(target_h / height, max_w / width) * size_scale
 	_body.scale = Vector3.ONE * s
 	_extent_top = aabb.end.y * s
 	_extent_front = maxf(aabb.end.z * s, 0.3)

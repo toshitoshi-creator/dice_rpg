@@ -1,11 +1,13 @@
 class_name EquipmentScreen
 extends Control
-## 装備画面。ぶき・たて・よろいを付けかえる。
+## 装備画面。ぶき・たて・よろい・ダイスを付けかえる。ゴールドで強化したり、ぶき・ダイスを売ったりもできる。
 ## ゲームのデータは持たず、表示するときに GameProgress を受け取り、
 ## 付けかえたいときは equip_requested を出す（実際に付けかえるのは BattleManager）。
 
 signal equip_requested(slot: StringName, id: StringName)
 signal closed
+## 強化・売却した（能力が変わったので、バトル中なら反映する）
+signal items_changed
 
 const PORTRAIT := preload("res://assets/images/hero_cutin.jpg")
 const GOLD := Color(1.0, 0.8, 0.3)
@@ -24,6 +26,9 @@ var _detail_name: Label
 var _detail_icon: TextureRect
 var _detail_text: Label
 var _close_button: Button
+var _gold: Label
+var upgrade_button: Button
+var sell_button: Button
 
 
 func _init() -> void:
@@ -84,6 +89,10 @@ func _ready() -> void:
 	_special.add_theme_color_override("font_color", GOLD)
 	_special.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info.add_child(_special)
+	_gold = Label.new()
+	_gold.add_theme_font_size_override("font_size", 26)
+	_gold.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+	info.add_child(_gold)
 
 	# 部位のタブ
 	var tabs := HBoxContainer.new()
@@ -95,7 +104,8 @@ func _ready() -> void:
 		b.custom_minimum_size = Vector2(0, 76)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.focus_mode = Control.FOCUS_NONE
-		b.add_theme_font_size_override("font_size", 30)
+		b.add_theme_font_size_override("font_size", 28)
+		b.custom_minimum_size.x = 60
 		b.set_meta(&"slot", slot)
 		b.pressed.connect(show_slot.bind(slot))
 		tabs.add_child(b)
@@ -129,13 +139,27 @@ func _ready() -> void:
 	dbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	drow.add_child(dbox)
 	_detail_name = Label.new()
-	_detail_name.add_theme_font_size_override("font_size", 28)
+	_detail_name.add_theme_font_size_override("font_size", 26)
+	_detail_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_detail_name.add_theme_color_override("font_color", GOLD)
 	dbox.add_child(_detail_name)
 	_detail_text = Label.new()
 	_detail_text.add_theme_font_size_override("font_size", 24)
 	_detail_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dbox.add_child(_detail_text)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 10)
+	box.add_child(actions)
+	upgrade_button = UIStyle.button("きょうか", Color(0.35, 0.7, 0.4), 70, 24)
+	upgrade_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	upgrade_button.clip_text = true
+	upgrade_button.pressed.connect(func() -> void: upgrade(_focus_id))
+	actions.add_child(upgrade_button)
+	sell_button = UIStyle.button("うる", Color(0.75, 0.45, 0.3), 70, 24)
+	sell_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sell_button.clip_text = true
+	sell_button.pressed.connect(func() -> void: sell(_focus_id))
+	actions.add_child(sell_button)
 
 	_close_button = Button.new()
 	_close_button.text = "とじる"
@@ -201,7 +225,8 @@ func refresh() -> void:
 	if _progress == null:
 		return
 	var weapon := _progress.weapon()
-	_stats.text = "最大HP  %d\nこうげき  +%d\nぼうぎょ  +%d" % [_progress.total_max_hp(), _progress.attack_bonus(), _progress.defense_bonus()]
+	_stats.text = "最大HP  %d\nダメージ  ×%.2f\nダメージカット  %d%%" % [_progress.total_max_hp(), _progress.power() * _progress.damage_bonus(), _progress.defense_bonus()]
+	_gold.text = "ゴールド  %s" % UIStyle.big_number(_progress.gold)
 	_special.text = "SP技: %s\nダイス: %s" % [weapon["special_name"], _progress.dice()["name"]]
 	for b in _tabs:
 		var active: bool = b.get_meta(&"slot") == _slot
@@ -229,6 +254,7 @@ func _make_card(id: StringName) -> Button:
 	b.custom_minimum_size = Vector2(0, 104)
 	b.focus_mode = Control.FOCUS_NONE
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.clip_text = true
 	b.icon = EquipmentDatabase.get_icon(_slot, id)
 	b.add_theme_constant_override("icon_max_width", 84)
 	b.add_theme_constant_override("h_separation", 14)
@@ -240,6 +266,8 @@ func _make_card(id: StringName) -> Button:
 	b.set_meta(&"item_id", id)
 	var rarity := EquipmentDatabase.rarity(_slot, id)
 	var line2 := EquipmentDatabase.stat_text(_slot, id)
+	if owned:
+		line2 = "Lv%d  " % _progress.item_level(_slot, id) + line2
 	if _slot == EquipmentDatabase.SLOT_WEAPON:
 		line2 += "   SP: " + String(item["special_name"])
 	if owned:
@@ -271,15 +299,39 @@ func _show_detail(id: StringName) -> void:
 	var item := EquipmentDatabase.get_item(_slot, id)
 	_detail_icon.texture = EquipmentDatabase.get_icon(_slot, id)
 	_detail_icon.self_modulate = Color.WHITE if _progress.is_owned(_slot, id) else Color(0, 0, 0, 0.85)
+	upgrade_button.visible = _progress.is_owned(_slot, id)
+	sell_button.visible = _progress.is_owned(_slot, id) and EquipmentDatabase.SELLABLE.has(_slot)
+	if _progress.is_owned(_slot, id):
+		var cost := _progress.upgrade_cost(_slot, id)
+		upgrade_button.text = "MAX" if cost < 0 else "きょうか  %sG" % UIStyle.big_number(cost)
+		upgrade_button.disabled = not _progress.can_upgrade(_slot, id)
+		sell_button.text = "うる  +%sG" % UIStyle.big_number(_progress.sell_price(_slot, id))
+		sell_button.disabled = not _progress.can_sell(_slot, id)
 	if not _progress.is_owned(_slot, id):
 		_detail_name.text = "？？？"
 		_detail_text.text = "%s ガチャで てにはいる" % Gacha.BANNERS[Gacha.BANNER_DICE if _slot == EquipmentDatabase.SLOT_DICE else Gacha.BANNER_EQUIPMENT]["name"]
 		return
-	_detail_name.text = "%s %s（%s）" % [EquipmentDatabase.RARITY_NAMES[EquipmentDatabase.rarity(_slot, id)], item["name"], EquipmentDatabase.stat_text(_slot, id)]
+	_detail_name.text = "%s %s  %s" % [EquipmentDatabase.RARITY_NAMES[EquipmentDatabase.rarity(_slot, id)], item["name"],
+		EquipmentDatabase.level_text(_slot, id, _progress.item_level(_slot, id))]
 	var text := String(item.get("desc", ""))
 	if _slot == EquipmentDatabase.SLOT_WEAPON:
 		text += "\nSP技「%s」: %s" % [item["special_name"], item["special_desc"]]
 	_detail_text.text = text
+
+
+## 強化する（ゴールドが足りなければ何もしない）
+func upgrade(id: StringName) -> void:
+	if _progress and _progress.upgrade(_slot, id):
+		items_changed.emit()
+		refresh()
+
+
+## 売る（装備中・最初から持っている装備は売れない）
+func sell(id: StringName) -> void:
+	if _progress and _progress.sell(_slot, id) > 0:
+		_focus_id = _progress.equipped[_slot]
+		items_changed.emit()
+		refresh()
 
 
 ## テスト用: 一覧のボタンを取得する。

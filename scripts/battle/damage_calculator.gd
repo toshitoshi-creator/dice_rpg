@@ -24,14 +24,15 @@ var minimum_damage: int = 1
 func calculate_player_attack(roll: DiceResult, attacker: BattleActor, defender: BattleActor) -> AttackResult:
 	var values: Array = roll.values if not roll.values.is_empty() else [roll.value]
 	var base := Balance.dice_damage(values, dice_damage, attacker.attack_bonus)
-	var is_critical := false
-	for v in values:
-		if critical_faces.has(v):
-			is_critical = true
+	# クリティカル: 6 がサイコロの数の半分以上（1 こなら 6）
+	var is_critical := Balance.is_critical(values)
 	var raw := float(base * attacker.attack) * attacker.power
 	if is_critical:
 		raw *= critical_multiplier
 	var result := AttackResult.new(0, is_critical, roll.value)
+	result.zorome_multiplier = Balance.zorome_multiplier(values)
+	result.zorome_groups = Balance.zorome_groups(values)
+	result.all_zorome = Balance.is_all_zorome(values)
 	_apply_dice_abilities(roll, result)
 	result.amount = maxi(roundi(raw) - defender.defense, minimum_damage)
 	return result

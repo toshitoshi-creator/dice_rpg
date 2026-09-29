@@ -32,6 +32,7 @@ func _run() -> void:
 	_test_special_gauge_math()
 	_test_equipment_data()
 	_test_balance()
+	_test_economy()
 
 	_test_gacha_math()
 	manager = BattleManager.new()
@@ -43,6 +44,7 @@ func _run() -> void:
 	await _test_full_turn()
 	await _test_special()
 	await _test_equipment()
+	await _test_charge_and_groups()
 	await _test_defeat_stage1()
 	await _test_stage_progression()
 	await _test_defeat_later_stage()
@@ -229,7 +231,8 @@ func _press_overlay(action: StringName) -> bool:
 func _win_current_stage(expected_state: BattleState.State) -> bool:
 	if not await _wait_state(BattleState.State.PLAYER_TURN, 8.0):
 		return false
-	manager.enemy.hp = 1
+	for e in manager.enemies:
+		e.hp = 1
 	manager.request_roll()
 	return await _wait_state(expected_state, 25.0)
 
@@ -361,7 +364,7 @@ func _test_balance() -> void:
 	print("\n[Unit] Levels, multiple dice and balance")
 	_check(Balance.dice_count(1) == 1 and Balance.dice_count(9) == 1 and Balance.dice_count(10) == 2 and Balance.dice_count(20) == 3 and Balance.dice_count(50) == 6, "dice: Lv1 = 1, Lv10 = 2, Lv20 = 3 ... Lv50 = 6")
 	var table := DamageCalculator.new().dice_damage
-	_check(Balance.dice_damage([6, 4, 2], table) == 400 and Balance.dice_damage([3], table) == 15 and Balance.dice_damage([1, 1], table) == 5, "dice multiply: 6x4x2 -> 50x4x2 = 400")
+	_check(Balance.dice_damage([6, 4, 2], table) == 400 and Balance.dice_damage([3], table) == 15 and Balance.dice_damage([1, 2], table) == 10, "dice multiply: 6x4x2 -> 50x4x2 = 400")
 	var calc := DamageCalculator.new()
 	var hero := BattleActor.new()
 	var foe := BattleActor.new()
@@ -383,13 +386,61 @@ func _test_balance() -> void:
 	var boss := EnemyDatabase.get_enemy(StageDatabase.get_stage(9, 10).enemy_no)
 	var lv40 := _expected_turns(40, boss)
 	var lv50 := _expected_turns(50, boss)
-	_check(lv50 < 9.0 and lv40 > lv50 * 3.0, "10-10 boss: about %.0f turns at Lv50, %.0f turns at Lv40" % [lv50, lv40])
+	_check(lv50 < 12.0 and lv40 > lv50 * 3.0, "10-10 boss: about %.0f turns at Lv50, %.0f turns at Lv40" % [lv50, lv40])
 
 
-## そのレベルで敵を倒すのにかかる平均ターン数
-func _expected_turns(level: int, e: EnemyData) -> float:
-	var avg := 5.0 * pow(Balance.AVERAGE_MULTIPLIER, Balance.dice_count(level)) * Balance.power(level)
-	return e.max_hp / avg
+func _test_economy() -> void:
+	print("\n[Unit] Gold, upgrades, selling, zorome, critical, groups")
+	var s11 := StageDatabase.get_stage(0, 1)
+	_check(s11.enemy_nos.size() == 1 and StageDatabase.enemy_stats(s11, 0)["gold"] == 10000, "1-1: one enemy that gives 10,000 gold")
+	var sizes := {}
+	var species := {}
+	for c in range(1, 11):
+		for i in 10:
+			var st := StageDatabase.get_stage(i, c)
+			sizes[st.enemy_nos.size()] = true
+			for no in st.enemy_nos:
+				species[EnemyDatabase.get_enemy(no).species_id] = true
+	_check(sizes.has(1) and sizes.has(2) and sizes.has(3), "stages have groups of 1, 2 and 3 enemies")
+	_check(species.size() >= 40, "%d species appear across the stages" % species.size())
+	_check(Balance.exp_to_next(45) > Balance.exp_to_next(44) * 1.2, "leveling slows down after Lv40")
+	# ゾロ目・クリティカル
+	_check(Balance.zorome_multiplier([3, 3]) == 4 and Balance.zorome_multiplier([3, 3, 1]) == 2 and Balance.zorome_multiplier([2, 2, 5, 5]) == 4 and Balance.zorome_multiplier([6, 6, 6]) == 8, "zorome: pair x2, triple x4, all-same x2 more")
+	_check(Balance.is_critical([6]) and not Balance.is_critical([5]) and Balance.is_critical([6, 1]) and not Balance.is_critical([6, 1, 2]) and Balance.is_critical([6, 6, 1]), "critical: sixes on at least half of the dice")
+	var table := DamageCalculator.new().dice_damage
+	_check(Balance.dice_damage([5, 5], table) == 30 * 6 * 4, "5-5 zorome: 30 x 6 x (2 x 2) = 720")
+	# 強化・売却
+	var p := GameProgress.new()
+	var cheapest := 1 << 60
+	for slot in EquipmentDatabase.SLOTS:
+		for id in EquipmentDatabase.items(slot):
+			cheapest = mini(cheapest, EquipmentDatabase.upgrade_cost(slot, id, 1))
+	_check(cheapest == 100000, "cheapest upgrade costs 100,000 gold")
+	_check(EquipmentDatabase.upgrade_cost(&"weapon", &"brave_sword", 5) > EquipmentDatabase.upgrade_cost(&"weapon", &"brave_sword", 4), "upgrades cost more at higher levels")
+	_check(not p.upgrade(&"weapon", &"brave_sword"), "cannot upgrade without gold")
+	p.gold = 150000
+	var before := p.damage_bonus()
+	_check(p.upgrade(&"weapon", &"brave_sword") and p.gold == 50000 and p.item_level(&"weapon", &"brave_sword") == 2 and p.damage_bonus() > before, "upgrade: -100,000 gold, Lv2, more damage")
+	p.add_item(&"weapon", &"steel_sword")
+	p.add_item(&"dice", &"silver_die")
+	_check(not p.can_sell(&"weapon", &"brave_sword") and not p.can_sell(&"shield", &"trainee_shield"), "cannot sell equipped / starter items or shields")
+	_check(p.sell_price(&"dice", &"silver_die") > p.sell_price(&"weapon", &"flame_sword"), "dice sell for more than weapons of the same rarity")
+	var g0 := p.gold
+	var price := p.sell(&"weapon", &"steel_sword")
+	_check(price > 0 and p.gold == g0 + price and not p.is_owned(&"weapon", &"steel_sword"), "selling a weapon gives %s gold" % UIStyle.big_number(price))
+	# あふれたダメージ
+	var calc := DamageCalculator.new()
+	_check(calc.calculate_player_attack(DiceResult.from_values([6, 6] as Array[int]), BattleActor.new(), BattleActor.new()).zorome_multiplier == 4, "6-6 gives zorome x4 (pair x2, all-same x2)")
+
+
+## そのレベルでステージ（10-10）の敵を全部倒すのにかかる平均ターン数
+func _expected_turns(level: int, _e: EnemyData) -> float:
+	var stage := StageDatabase.get_stage(9, 10)
+	var total := 0
+	for i in stage.enemy_nos.size():
+		total += StageDatabase.enemy_stats(stage, i)["max_hp"]
+	var avg: float = Balance.AVERAGE_DAMAGE[Balance.dice_count(level)] * Balance.power(level)
+	return total / avg
 
 
 func _test_equipment_data() -> void:
@@ -507,6 +558,32 @@ func _test_equipment() -> void:
 	_check(manager.player.attack_bonus == 0 and manager.player.damage_cut == 0.0 and manager.player.max_hp == 100 and manager.dice.face_values == [1, 6, 2, 5, 3, 4], "back to the starting equipment (and the normal die)")
 	manager.progress.special_gauge = 0.0
 	manager._update_special_ui()
+
+
+func _test_charge_and_groups() -> void:
+	print("\n[Test] Hold-to-spin and enemy groups")
+	await _wait_state(BattleState.State.PLAYER_TURN, 10.0)
+	_make_enemy_tough()
+	manager.ui.roll_button.button_down.emit()
+	_check(manager.is_charging, "holding the roll button starts charging")
+	var rest := manager.dice.rest_position
+	await _seconds(0.6)
+	_check(manager.dice.global_position.y > rest.y + 0.3 and manager.charge_ratio() > 0.3, "the die floats up and spins while held (charge %d%%)" % roundi(manager.charge_ratio() * 100))
+	await _shot("14_charge.png")
+	manager.ui.roll_button.button_up.emit()
+	_check(manager.state == BattleState.State.ROLLING and not manager.is_charging, "releasing throws the die")
+	await _wait_state(BattleState.State.PLAYER_TURN, 20.0)
+	# グループ: 1-7 は 3 体。1 回の攻撃であふれたダメージが次の敵へ
+	manager.start_stage(6)
+	await _launch_intro_done()
+	_check(manager.enemies.size() == 3 and manager.ui.enemy_bars.size() == 3, "1-7: three enemies with three HP bars")
+	await _shot("15_group.png")
+	for e in manager.enemies:
+		e.hp = 3
+	var dealt := manager._deal_damage(AttackResult.new(8))
+	_check(dealt.size() == 3 and manager.enemies[0].is_dead() and manager.enemies[1].is_dead() and manager.enemies[2].hp == 1, "8 damage kills 3 HP + 3 HP and spills 2 into the third")
+	manager.start_stage(0)
+	await _launch_intro_done()
 
 
 func _test_gacha_math() -> void:
@@ -775,7 +852,8 @@ func _test_stage_progression() -> void:
 	var level_start := manager.progress.level
 	for i in 9:
 		var expected := EnemyDatabase.get_enemy(StageDatabase.get_stage(i).enemy_no)
-		_check(manager.stage.index == i and manager.enemy.data.no == i + 1 and manager.stage.title == "1-%d" % (i + 1), "stage 1-%d: No.%d %s (HP %d)" % [i + 1, expected.no, expected.display_name, expected.max_hp])
+		var nos: Array = manager.enemies.map(func(e: EnemyActor) -> int: return e.data.no)
+		_check(manager.stage.index == i and manager.stage.enemy_no == i + 1 and nos.has(i + 1) and manager.stage.title == "1-%d" % (i + 1), "stage 1-%d: No.%d %s and %d enemies %s" % [i + 1, expected.no, expected.display_name, nos.size(), str(nos)])
 		_check(manager.player.max_hp == manager.progress.total_max_hp() and manager.player.hp == manager.player.max_hp, "Lv%d: max HP %d, full HP at stage start" % [manager.progress.level, manager.player.max_hp])
 		var ok := await _win_current_stage(BattleState.State.VICTORY)
 		_check(ok, "stage 1-%d cleared (VICTORY)" % [i + 1])

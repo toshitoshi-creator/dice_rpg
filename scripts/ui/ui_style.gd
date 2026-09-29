@@ -106,3 +106,16 @@ static func background() -> TextureRect:
 	r.set_anchors_preset(Control.PRESET_FULL_RECT)
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return r
+
+
+## 大きな数を 3 けたごとに「,」で区切る（例: 1234567 → "1,234,567"）
+static func big_number(value: int) -> String:
+	var digits := str(absi(value))
+	var out := ""
+	var count := 0
+	for i in range(digits.length() - 1, -1, -1):
+		out = digits[i] + out
+		count += 1
+		if count % 3 == 0 and i > 0:
+			out = "," + out
+	return ("-" if value < 0 else "") + out

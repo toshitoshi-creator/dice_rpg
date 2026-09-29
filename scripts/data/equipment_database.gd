@@ -27,6 +27,19 @@ const ICON_DIR := "res://assets/icons/"
 ## アイコンのセットと枚数（art/icon_sheets/ の元画像から tools/slice_icon_sheet.py で作ったもの）
 const ICON_SETS := {&"weapons": 50, &"swords": 50, &"armors": 50, &"shields": 50}
 
+## ■ 強化（ゴールド）
+##   レベル 1 → 最大 MAX_ITEM_LEVEL。費用はいちばん安くて 100000 ゴールドで、レベルとレア度が高いほど高い。
+##   ぶき・ダイス: ダメージ ×(1 + 0.1 × (レベル - 1))（ダイスは 0.12）
+##   たて: ダメージカット +1% / レベル（最大 75%）  よろい: 最大 HP +4% / レベル
+## ■ 売却（ゴールド）: ぶきとダイスだけ。ダイスのほうが高く売れる。強化したぶん高くなる
+const MAX_ITEM_LEVEL := 20
+const UPGRADE_BASE := 100000
+const UPGRADE_GROWTH := 1.6
+const RARITY_COST := {1: 1.0, 2: 1.5, 3: 2.5, 4: 4.0}
+const SELL_BASE := {1: 30000, 2: 100000, 3: 400000, 4: 1500000}
+const DICE_SELL_BONUS := 2.5
+const SELLABLE: Array[StringName] = [&"weapon", &"dice"]
+
 ## 最初から持っている装備
 const STARTER := {
 	SLOT_WEAPON: &"brave_sword",
@@ -128,3 +141,47 @@ static func stat_text(slot: StringName, id: StringName) -> String:
 		SLOT_DICE:
 			return "め: %s" % DiceDatabase.faces_text(id)
 	return ""
+
+
+## 強化レベル → ダメージの倍率（ぶき・ダイス）。ほかの部位は 1.0
+static func damage_multiplier(slot: StringName, level: int) -> float:
+	match slot:
+		SLOT_WEAPON:
+			return 1.0 + 0.1 * (level - 1)
+		SLOT_DICE:
+			return 1.0 + 0.12 * (level - 1)
+	return 1.0
+
+
+static func shield_cut(id: StringName, level: int) -> int:
+	return mini(int(SHIELDS.get(id, {}).get("def", 0)) + (level - 1), 75)
+
+
+static func armor_hp(id: StringName, level: int) -> int:
+	return int(ARMORS.get(id, {}).get("hp", 0)) + 4 * (level - 1)
+
+
+## レベル level から 1 つ上げる費用（最大なら -1）
+static func upgrade_cost(slot: StringName, id: StringName, level: int) -> int:
+	if level >= MAX_ITEM_LEVEL:
+		return -1
+	return roundi(UPGRADE_BASE * RARITY_COST[rarity(slot, id)] * pow(UPGRADE_GROWTH, level - 1))
+
+
+static func sell_price(slot: StringName, id: StringName, level: int) -> int:
+	var price: float = SELL_BASE[rarity(slot, id)] * (1.0 + 0.5 * (level - 1))
+	if slot == SLOT_DICE:
+		price *= DICE_SELL_BONUS
+	return roundi(price)
+
+
+## 強化レベルこみの効果の説明（例: "Lv3  ダメージ ×1.2"）
+static func level_text(slot: StringName, id: StringName, level: int) -> String:
+	match slot:
+		SLOT_WEAPON, SLOT_DICE:
+			return "Lv%d  ダメージ ×%.2f" % [level, damage_multiplier(slot, level)]
+		SLOT_SHIELD:
+			return "Lv%d  ダメージ -%d%%" % [level, shield_cut(id, level)]
+		SLOT_ARMOR:
+			return "Lv%d  最大HP +%d%%" % [level, armor_hp(id, level)]
+	return "Lv%d" % level

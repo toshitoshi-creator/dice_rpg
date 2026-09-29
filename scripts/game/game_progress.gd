@@ -28,6 +28,10 @@ var level: int = 1
 ## いまのレベルでためた経験値（exp_to_next() で次のレベル）
 var exp_points: int = 0
 var gems: int = START_GEMS
+## ゴールド（敵をたおすともらえる。装備・サイコロの強化に使う）
+var gold: int = 0
+## 装備・サイコロのレベル {"slot/id": レベル}（書いていなければ 1）
+var item_levels: Dictionary = {}
 ## チャプター → クリアした一番先のステージ（1〜10。10 ならチャプタークリア）
 var cleared_stages: Dictionary = {}
 ## 装備中のもの {slot: id}（slot は EquipmentDatabase.SLOTS）
@@ -192,16 +196,23 @@ func add_exp(amount: int) -> int:
 
 
 # ------------------------------------------------------------------
-# 装備の能力
+# 装備の能力（強化レベルこみ。数式は EquipmentDatabase）
 # ------------------------------------------------------------------
 ## 武器の攻撃力（1 こ目の出目のダメージに足される）
 func attack_bonus() -> int:
 	return int(EquipmentDatabase.get_item(EquipmentDatabase.SLOT_WEAPON, weapon_id).get("atk", 0))
 
 
+## 武器とサイコロの強化で上がるダメージの倍率（1.0 = そのまま）
+func damage_bonus() -> float:
+	return EquipmentDatabase.damage_multiplier(EquipmentDatabase.SLOT_WEAPON, item_level(EquipmentDatabase.SLOT_WEAPON, weapon_id)) \
+		* EquipmentDatabase.damage_multiplier(EquipmentDatabase.SLOT_DICE, item_level(EquipmentDatabase.SLOT_DICE, dice_id))
+
+
 ## たての「ぼうぎょ」（受けるダメージを何 % 減らすか）
 func defense_bonus() -> int:
-	return int(EquipmentDatabase.get_item(EquipmentDatabase.SLOT_SHIELD, equipped[EquipmentDatabase.SLOT_SHIELD]).get("def", 0))
+	var id: StringName = equipped[EquipmentDatabase.SLOT_SHIELD]
+	return EquipmentDatabase.shield_cut(id, item_level(EquipmentDatabase.SLOT_SHIELD, id))
 
 
 ## 受けるダメージを減らす割合（0.0〜）
@@ -211,7 +222,62 @@ func damage_cut() -> float:
 
 ## よろいで増える最大 HP（%）
 func hp_bonus() -> int:
-	return int(EquipmentDatabase.get_item(EquipmentDatabase.SLOT_ARMOR, equipped[EquipmentDatabase.SLOT_ARMOR]).get("hp", 0))
+	var id: StringName = equipped[EquipmentDatabase.SLOT_ARMOR]
+	return EquipmentDatabase.armor_hp(id, item_level(EquipmentDatabase.SLOT_ARMOR, id))
+
+
+# ------------------------------------------------------------------
+# 強化・売却
+# ------------------------------------------------------------------
+static func _key(slot: StringName, id: StringName) -> String:
+	return "%s/%s" % [slot, id]
+
+
+func item_level(slot: StringName, id: StringName) -> int:
+	return int(item_levels.get(_key(slot, id), 1))
+
+
+## 次のレベルへの強化に必要なゴールド（最大レベルなら -1）
+func upgrade_cost(slot: StringName, id: StringName) -> int:
+	return EquipmentDatabase.upgrade_cost(slot, id, item_level(slot, id))
+
+
+func can_upgrade(slot: StringName, id: StringName) -> bool:
+	var cost := upgrade_cost(slot, id)
+	return is_owned(slot, id) and cost > 0 and gold >= cost
+
+
+## 強化する。ゴールドが足りない・最大レベルなら false。
+func upgrade(slot: StringName, id: StringName) -> bool:
+	if not can_upgrade(slot, id):
+		return false
+	gold -= upgrade_cost(slot, id)
+	item_levels[_key(slot, id)] = item_level(slot, id) + 1
+	save()
+	return true
+
+
+## 売れるか: 持っていて、装備していなくて、最初から持っている装備ではない（武器とサイコロだけ）
+func can_sell(slot: StringName, id: StringName) -> bool:
+	if not EquipmentDatabase.SELLABLE.has(slot):
+		return false
+	return is_owned(slot, id) and equipped[slot] != id and EquipmentDatabase.STARTER.get(slot) != id
+
+
+func sell_price(slot: StringName, id: StringName) -> int:
+	return EquipmentDatabase.sell_price(slot, id, item_level(slot, id))
+
+
+## 売る。売ったゴールドを返す（売れなければ 0）。レベルも元にもどる。
+func sell(slot: StringName, id: StringName) -> int:
+	if not can_sell(slot, id):
+		return 0
+	var price := sell_price(slot, id)
+	(owned[slot] as Array).erase(id)
+	item_levels.erase(_key(slot, id))
+	gold += price
+	save()
+	return price
 
 
 ## レベルとよろい込みの最大 HP。
@@ -263,7 +329,7 @@ func add_gems(amount: int) -> void:
 
 ## 今のステージをクリアしたごほうび（経験値・ジェム）を受け取り、クリアを記録する。
 ## {"gems", "first_clear"（はじめてチャプタークリア）, "exp", "level_before", "level", "dice_before", "dice"} を返す。
-func claim_stage_clear(enemy_exp: int = -1) -> Dictionary:
+func claim_stage_clear(enemy_exp: int = -1, enemy_gold: int = -1) -> Dictionary:
 	var stage := current_stage()
 	var s := stage.index + 1
 	var amount := BOSS_GEMS if stage.is_boss else STAGE_GEMS
@@ -274,13 +340,15 @@ func claim_stage_clear(enemy_exp: int = -1) -> Dictionary:
 	if s > cleared_stage(chapter):
 		cleared_stages[chapter] = s
 	var got_exp := enemy_exp if enemy_exp >= 0 else Balance.exp_reward(chapter, s, stage.is_boss)
+	var got_gold := enemy_gold if enemy_gold >= 0 else Balance.gold_reward(chapter, s, stage.is_boss)
+	gold += got_gold
 	var level_before := level
 	var dice_before := dice_count()
 	add_exp(got_exp)
 	gems += amount
 	save()
 	return {
-		"gems": amount, "first_clear": first, "exp": got_exp,
+		"gems": amount, "first_clear": first, "exp": got_exp, "gold": got_gold,
 		"level_before": level_before, "level": level, "dice_before": dice_before, "dice": dice_count(),
 	}
 
@@ -296,6 +364,9 @@ func save() -> void:
 	cfg.set_value("player", "gems", gems)
 	cfg.set_value("player", "level", level)
 	cfg.set_value("player", "exp", exp_points)
+	cfg.set_value("player", "gold", gold)
+	for key in item_levels:
+		cfg.set_value("item_levels", key, item_levels[key])
 	for c in cleared_stages:
 		cfg.set_value("cleared", str(c), cleared_stages[c])
 	for slot in EquipmentDatabase.SLOTS:
@@ -313,6 +384,10 @@ func load_save(path: String) -> void:
 	gems = int(cfg.get_value("player", "gems", START_GEMS))
 	level = clampi(int(cfg.get_value("player", "level", 1)), 1, Balance.MAX_LEVEL)
 	exp_points = maxi(int(cfg.get_value("player", "exp", 0)), 0)
+	gold = maxi(int(cfg.get_value("player", "gold", 0)), 0)
+	if cfg.has_section("item_levels"):
+		for key in cfg.get_section_keys("item_levels"):
+			item_levels[key] = clampi(int(cfg.get_value("item_levels", key, 1)), 1, EquipmentDatabase.MAX_ITEM_LEVEL)
 	if cfg.has_section("cleared"):
 		for key in cfg.get_section_keys("cleared"):
 			cleared_stages[int(key)] = clampi(int(cfg.get_value("cleared", key, 0)), 0, Balance.STAGES_PER_CHAPTER)

@@ -73,6 +73,13 @@ func _make_bar(background: StyleBox, fill: StyleBox) -> ProgressBar:
 	return bar
 
 
+## 敵が何体もいるときの小さい表示
+func set_compact(compact: bool) -> void:
+	_name_label.add_theme_font_size_override("font_size", 22 if compact else 30)
+	_value_label.add_theme_font_size_override("font_size", 20 if compact else 26)
+	(_bar.get_parent() as Control).custom_minimum_size = Vector2(0, 18 if compact else 30)
+
+
 func set_title(title: String) -> void:
 	_name_label.text = title
 

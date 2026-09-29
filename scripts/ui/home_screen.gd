@@ -19,6 +19,7 @@ var carousel: ChapterCarousel
 var _progress: GameProgress
 var _equip_row: HBoxContainer
 var _level_label: Label
+var _gold_label: Label
 var _exp_bar: ProgressBar
 
 
@@ -71,9 +72,14 @@ func _ready() -> void:
 	_exp_bar.add_theme_stylebox_override("background", bg)
 	_exp_bar.add_theme_stylebox_override("fill", fill)
 	info.add_child(_exp_bar)
+	var money := VBoxContainer.new()
+	money.alignment = BoxContainer.ALIGNMENT_CENTER
+	top.add_child(money)
 	gems = GemCounter.new()
-	gems.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	top.add_child(gems)
+	money.add_child(gems)
+	_gold_label = UIStyle.label("", 24, Color(1.0, 0.85, 0.35), 6)
+	_gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	money.add_child(_gold_label)
 
 	# まん中: チャプター選択（スワイプ）
 	carousel = ChapterCarousel.new()
@@ -111,6 +117,7 @@ func _ready() -> void:
 func refresh(progress: GameProgress, first_time: bool = false) -> void:
 	_progress = progress
 	gems.set_value(progress.gems)
+	_gold_label.text = "%s G" % UIStyle.big_number(progress.gold)
 	_level_label.text = "Lv%d   サイコロ %d こ" % [progress.level, progress.dice_count()]
 	_exp_bar.max_value = progress.exp_to_next()
 	_exp_bar.value = progress.exp_points
