@@ -35,7 +35,8 @@ var special_active := false
 var _battle_id := 0
 var _actors_root: Node3D
 var _fx_root: Node3D
-var _portrait: HeroPortrait
+## カットインで使う主人公のイラスト
+const CUTIN_PORTRAIT := preload("res://assets/images/hero_cutin.jpg")
 
 
 func _ready() -> void:
@@ -71,9 +72,6 @@ func _ready() -> void:
 	ui.roll_pressed.connect(request_roll)
 	ui.special_pressed.connect(request_special)
 
-	_portrait = HeroPortrait.new()
-	_portrait.name = "HeroPortrait"
-	add_child(_portrait)
 	ui.overlay_action.connect(_on_overlay_action)
 
 	start_stage(0)
@@ -240,15 +238,13 @@ func _run_special(id: int) -> void:
 	sound.play(&"powerup")
 	SpecialAura.spawn(_fx_root, player.position, color)
 	player.flash(color, 1.2)
-	_portrait.start()
 	await _wait(0.55)
 	if id != _battle_id:
 		return
 	# 2. カットイン
 	sound.play(&"special")
 	camera.shake(0.4)
-	await ui.play_special_cutin(weapon["special_name"] + "！", weapon["special_desc"], _portrait.get_texture(), color)
-	_portrait.stop()
+	await ui.play_special_cutin(weapon["special_name"] + "！", weapon["special_desc"], CUTIN_PORTRAIT, color)
 	if id != _battle_id:
 		return
 	# 3. 武器ごとの効果

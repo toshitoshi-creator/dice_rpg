@@ -96,7 +96,7 @@ func is_playing() -> bool:
 	return _running
 
 
-## カットインを再生する。portrait はキャラの顔（SubViewport のテクスチャなど）。
+## カットインを再生する。portrait はキャラの顔のイラスト（斜めの窓に顔が入るよう切り抜いて表示）。
 func play(title: String, subtitle: String, portrait: Texture2D, color: Color = Color(1.0, 0.78, 0.2)) -> void:
 	var w := size.x
 	var h := size.y
@@ -119,7 +119,7 @@ func play(title: String, subtitle: String, portrait: Texture2D, color: Color = C
 	_portrait_poly.texture = portrait
 	var tex_size := Vector2(512, 512) if portrait == null else portrait.get_size()
 	var crop_h := tex_size.x * ph / (pw + sl)
-	var y0 := (tex_size.y - crop_h) * 0.45
+	var y0 := (tex_size.y - crop_h) * 0.3
 	var uv := PackedVector2Array()
 	for pt in shape:
 		uv.append(Vector2(pt.x / (pw + sl) * tex_size.x, y0 + pt.y / ph * crop_h))
