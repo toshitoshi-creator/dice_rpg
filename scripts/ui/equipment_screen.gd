@@ -95,7 +95,7 @@ func _ready() -> void:
 		b.custom_minimum_size = Vector2(0, 76)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.focus_mode = Control.FOCUS_NONE
-		b.add_theme_font_size_override("font_size", 32)
+		b.add_theme_font_size_override("font_size", 30)
 		b.set_meta(&"slot", slot)
 		b.pressed.connect(show_slot.bind(slot))
 		tabs.add_child(b)
@@ -202,7 +202,7 @@ func refresh() -> void:
 		return
 	var weapon := _progress.weapon()
 	_stats.text = "最大HP  %d\nこうげき  +%d\nぼうぎょ  +%d" % [_progress.total_max_hp(), _progress.attack_bonus(), _progress.defense_bonus()]
-	_special.text = "SP技: %s" % weapon["special_name"]
+	_special.text = "SP技: %s\nダイス: %s" % [weapon["special_name"], _progress.dice()["name"]]
 	for b in _tabs:
 		var active: bool = b.get_meta(&"slot") == _slot
 		var base := Color(1.0, 0.78, 0.25) if active else Color(0.3, 0.26, 0.36)
@@ -238,15 +238,17 @@ func _make_card(id: StringName) -> Button:
 			b.add_theme_color_override(state_name, Color(0, 0, 0, 0.85))
 	b.add_theme_font_size_override("font_size", 28)
 	b.set_meta(&"item_id", id)
+	var rarity := EquipmentDatabase.rarity(_slot, id)
 	var line2 := EquipmentDatabase.stat_text(_slot, id)
 	if _slot == EquipmentDatabase.SLOT_WEAPON:
 		line2 += "   SP: " + String(item["special_name"])
 	if owned:
-		b.text = "%s%s\n%s" % ["【E】" if equipped else "", item["name"], line2]
+		b.text = "%s%s  %s\n%s" % ["【E】" if equipped else "", item["name"], EquipmentDatabase.RARITY_NAMES[rarity], line2]
 	else:
-		b.text = "？？？\n%s" % EquipmentDatabase.unlock_text(_slot, id)
+		b.text = "？？？  %s\nガチャで てにはいる" % EquipmentDatabase.RARITY_NAMES[rarity]
+	var rcol: Color = EquipmentDatabase.RARITY_COLORS[rarity]
 	var bg := Color(0.32, 0.22, 0.08) if equipped else (Color(0.16, 0.13, 0.22) if owned else Color(0.1, 0.1, 0.12))
-	var border := GOLD if equipped else (Color(0.45, 0.4, 0.55) if owned else Color(0.25, 0.25, 0.28))
+	var border := GOLD.lightened(0.2) if equipped else (rcol.darkened(0.2) if owned else Color(0.25, 0.25, 0.28))
 	var fg := Color(1, 0.95, 0.8) if owned else Color(0.5, 0.5, 0.55)
 	for state_name in ["font_color", "font_hover_color", "font_pressed_color", "font_disabled_color"]:
 		b.add_theme_color_override(state_name, fg)
@@ -271,9 +273,9 @@ func _show_detail(id: StringName) -> void:
 	_detail_icon.self_modulate = Color.WHITE if _progress.is_owned(_slot, id) else Color(0, 0, 0, 0.85)
 	if not _progress.is_owned(_slot, id):
 		_detail_name.text = "？？？"
-		_detail_text.text = EquipmentDatabase.unlock_text(_slot, id)
+		_detail_text.text = "%s ガチャで てにはいる" % Gacha.BANNERS[Gacha.BANNER_DICE if _slot == EquipmentDatabase.SLOT_DICE else Gacha.BANNER_EQUIPMENT]["name"]
 		return
-	_detail_name.text = "%s（%s）" % [item["name"], EquipmentDatabase.stat_text(_slot, id)]
+	_detail_name.text = "%s %s（%s）" % [EquipmentDatabase.RARITY_NAMES[EquipmentDatabase.rarity(_slot, id)], item["name"], EquipmentDatabase.stat_text(_slot, id)]
 	var text := String(item.get("desc", ""))
 	if _slot == EquipmentDatabase.SLOT_WEAPON:
 		text += "\nSP技「%s」: %s" % [item["special_name"], item["special_desc"]]

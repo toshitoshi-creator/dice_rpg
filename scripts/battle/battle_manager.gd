@@ -8,6 +8,8 @@ extends Node3D
 signal state_changed(new_state: BattleState.State)
 signal turn_finished
 signal stage_started(stage: StageData)
+## 「ホームへ」が押された（GameApp がホーム画面に戻す）
+signal exit_requested
 
 var state: BattleState.State = BattleState.State.SETUP
 var damage_calculator := DamageCalculator.new()
@@ -80,6 +82,7 @@ func _ready() -> void:
 	ui.roll_pressed.connect(request_roll)
 	ui.special_pressed.connect(request_special)
 	ui.equip_pressed.connect(open_equipment)
+	ui.home_pressed.connect(request_exit)
 	ui.equipment.equip_requested.connect(change_equipment)
 
 	ui.overlay_action.connect(_on_overlay_action)
@@ -154,6 +157,8 @@ func _on_overlay_action(action: StringName) -> void:
 		&"restart":
 			progress.reset()
 			start_stage(0)
+		&"home":
+			exit_requested.emit()
 
 
 ## 敵を倒したあと、プレイヤーが次のステージへ歩いて進む演出。
@@ -200,6 +205,7 @@ func _spawn_actors() -> void:
 	player.name = "Player"
 	player.setup_stats("PLAYER", progress.total_max_hp(), 1, progress.defense_bonus())
 	player.attack_bonus = progress.attack_bonus()
+	dice.apply_dice(progress.dice())
 	player.position = field.player_spot
 	_actors_root.add_child(player)
 
@@ -214,6 +220,7 @@ func _set_state(new_state: BattleState.State) -> void:
 	state = new_state
 	ui.set_roll_enabled(BattleState.can_roll(state))
 	ui.set_equip_enabled(can_change_equipment())
+	ui.set_home_enabled(can_change_equipment())
 	_update_special_ui()
 	state_changed.emit(state)
 
@@ -282,6 +289,14 @@ func _activate_special(weapon: Dictionary, color: Color) -> void:
 			ui.show_message(weapon.get("special_message", ""))
 			await dice.play_result_highlight(color)
 			await _wait(0.5)
+		&"heal":
+			var amount := roundi(player.max_hp * float(weapon.get("special_heal", 0.3)))
+			player.heal(amount)
+			HitEffect.spawn(_fx_root, player.global_position + Vector3(0, 1.2, 0), color, 1.6)
+			player.flash(color, 0.8)
+			sound.play(&"powerup")
+			ui.show_message("%s（+%d）" % [weapon.get("special_message", ""), amount])
+			await _wait(0.9)
 		&"double_damage":
 			_special_multiplier = float(weapon.get("special_multiplier", 2.0))
 			HitEffect.spawn(_fx_root, player.global_position + Vector3(0, 1.2, 0), color, 1.8)
@@ -416,10 +431,10 @@ func _run_victory(id: int) -> void:
 		return
 	camera.focus_default()
 	sound.play(&"victory")
-	var rewards: Array[String] = []
-	for pair in progress.claim_stage_rewards(progress.stage_index):
-		rewards.append(String(EquipmentDatabase.get_item(pair[0], pair[1])["name"]))
-	if not rewards.is_empty():
+	var reward := progress.claim_stage_clear()
+	var rewards: Array[String] = ["ジェム +%d" % reward["gems"]]
+	if reward["first_clear"]:
+		rewards.append("はじめてクリア！ ボーナス +%d" % GameProgress.FIRST_CLEAR_GEMS)
 		sound.play(&"powerup")
 	if is_final:
 		ui.show_game_clear(enemy.display_name, rewards)
@@ -446,6 +461,14 @@ func can_change_equipment() -> bool:
 	return BattleState.can_roll(state) or BattleState.is_battle_over(state)
 
 
+## 「ホーム」ボタン。自分のターン中・結果画面でだけ戻れる。
+func request_exit() -> void:
+	if not can_change_equipment() or ui.is_equipment_open():
+		return
+	sound.play(&"button")
+	exit_requested.emit()
+
+
 func open_equipment() -> void:
 	if not can_change_equipment() or ui.is_equipment_open():
 		return
@@ -460,6 +483,8 @@ func change_equipment(slot: StringName, id: StringName) -> void:
 	sound.play(&"button", 0.0, 1.3)
 	if player == null:
 		return
+	if slot == EquipmentDatabase.SLOT_DICE and not dice.is_rolling:
+		dice.apply_dice(progress.dice())
 	player.attack_bonus = progress.attack_bonus()
 	player.defense = progress.defense_bonus()
 	var new_max := progress.total_max_hp()

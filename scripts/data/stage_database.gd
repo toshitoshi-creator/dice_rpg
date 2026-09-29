@@ -18,21 +18,39 @@ const CHAPTERS := [
 	},
 ]
 
-## 現在遊べるチャプター
-const CURRENT_CHAPTER := 0
-const STAGES: Array = CHAPTERS[CURRENT_CHAPTER]["stages"]
+## 遊べるチャプターの数（CHAPTERS に書いてある分）。それ以降は「じゅんびちゅう」
+static func playable_chapters() -> int:
+	return CHAPTERS.size()
 
 
-static func count() -> int:
-	return STAGES.size()
+## チャプター c（1〜）のステージが用意されているか（前のチャプターをクリアしたかは GameProgress で見る）。
+static func is_playable(c: int) -> bool:
+	return c >= 1 and c <= CHAPTERS.size()
 
 
-static func get_stage(index: int) -> StageData:
-	var i := clampi(index, 0, STAGES.size() - 1)
-	var entry: Dictionary = STAGES[i]
+## チャプターの名前（エリア名。敵図鑑のチャプターと同じ）
+static func chapter_name(c: int) -> String:
+	var scripts := EnemyDatabase.chapter_scripts()
+	if c < 1 or c > scripts.size():
+		return ""
+	return scripts[c - 1].AREA
+
+
+static func _stages(chapter: int) -> Array:
+	return CHAPTERS[clampi(chapter - 1, 0, CHAPTERS.size() - 1)]["stages"]
+
+
+static func count(chapter: int = 1) -> int:
+	return _stages(chapter).size()
+
+
+static func get_stage(index: int, chapter: int = 1) -> StageData:
+	var stages := _stages(chapter)
+	var i := clampi(index, 0, stages.size() - 1)
+	var entry: Dictionary = stages[i]
 	var stage := StageData.new()
 	stage.index = i
-	stage.chapter = CURRENT_CHAPTER + 1
+	stage.chapter = clampi(chapter, 1, CHAPTERS.size())
 	for prop in entry:
 		stage.set(prop, entry[prop])
 	return stage

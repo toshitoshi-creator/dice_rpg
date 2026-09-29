@@ -27,6 +27,8 @@ const FACE_NORMALS: Array[Vector3] = [
 @export var body_color: Color = Color(0.98, 0.96, 0.9)
 @export var number_color: Color = Color(0.12, 0.1, 0.16)
 @export var one_color: Color = Color(0.85, 0.08, 0.12)
+## 金属っぽさ（ぎん・きんのサイコロなど）
+@export var body_metal: float = 0.0
 
 @export_group("Settle detection")
 @export var settle_linear_threshold: float = 0.08
@@ -95,6 +97,7 @@ func _build_visual() -> void:
 	mesh_instance.mesh = mesh
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = body_color
+	mat.metallic = body_metal
 	mat.roughness = 0.35
 	mat.metallic_specular = 0.6
 	mat.rim_enabled = true
@@ -109,7 +112,7 @@ func _build_visual() -> void:
 	edge_mesh.size = Vector3.ONE * (size + 0.012)
 	edge.mesh = edge_mesh
 	var edge_mat := StandardMaterial3D.new()
-	edge_mat.albedo_color = Color(0.75, 0.68, 0.55)
+	edge_mat.albedo_color = body_color.darkened(0.25)
 	edge_mat.cull_mode = BaseMaterial3D.CULL_FRONT
 	edge.material_override = edge_mat
 	_edge_mat = edge_mat
@@ -169,14 +172,29 @@ func set_face_values(values: Array[int], special: bool = false) -> void:
 		_edge_mat.albedo_color = Color(0.9, 0.5, 0.1)
 	else:
 		_body_mat.albedo_color = body_color
-		_body_mat.metallic = 0.0
+		_body_mat.metallic = body_metal
 		_body_mat.emission_enabled = false
-		_edge_mat.albedo_color = Color(0.75, 0.68, 0.55)
+		_edge_mat.albedo_color = body_color.darkened(0.25)
+
+
+## 装備しているサイコロ（DiceDatabase の 1 つ）の目と色にする。スペシャル技のあとはこれに戻る。
+func apply_dice(data: Dictionary) -> void:
+	body_color = data.get("body", body_color)
+	number_color = data.get("number", number_color)
+	one_color = data.get("one", one_color)
+	body_metal = float(data.get("metal", 0.0))
+	var faces: Array[int] = []
+	faces.assign(data.get("faces", [1, 6, 2, 5, 3, 4]))
+	_normal_faces = faces.duplicate()
+	if _body_mat:
+		set_face_values(faces, false)
+	else:
+		face_values = faces
 
 
 ## 標準のサイコロに戻す。
 func restore_normal_faces() -> void:
-	if is_special:
+	if is_special or face_values != _normal_faces:
 		set_face_values(_normal_faces, false)
 
 

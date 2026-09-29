@@ -6,6 +6,8 @@ signal roll_pressed
 signal special_pressed
 ## 「そうび」ボタン（バトル中・結果画面）
 signal equip_pressed
+## 「ホーム」ボタン
+signal home_pressed
 ## 結果画面のボタン（&"next" = 次のステージ, &"retry" = 再挑戦, &"restart" = 最初から）
 signal overlay_action(action: StringName)
 
@@ -14,6 +16,7 @@ var player_bar: HpBar
 var roll_button: Button
 var special_button: Button
 var equip_button: Button
+var home_button: Button
 ## 装備画面
 var equipment: EquipmentScreen
 
@@ -107,6 +110,23 @@ func _build_bottom() -> void:
 	tag.add_theme_color_override("font_color", Color(0.55, 0.75, 1))
 	tag.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(tag)
+	home_button = Button.new()
+	home_button.text = "ホーム"
+	home_button.custom_minimum_size = Vector2(130, 56)
+	home_button.focus_mode = Control.FOCUS_NONE
+	home_button.add_theme_font_size_override("font_size", 24)
+	for state_name in ["font_color", "font_hover_color", "font_pressed_color"]:
+		home_button.add_theme_color_override(state_name, Color(1, 0.95, 0.85))
+	home_button.add_theme_color_override("font_disabled_color", Color(0.6, 0.58, 0.62))
+	home_button.add_theme_stylebox_override("normal", _small_button_style(Color(0.4, 0.36, 0.48)))
+	home_button.add_theme_stylebox_override("hover", _small_button_style(Color(0.48, 0.44, 0.56)))
+	home_button.add_theme_stylebox_override("pressed", _small_button_style(Color(0.32, 0.28, 0.4)))
+	home_button.add_theme_stylebox_override("disabled", _small_button_style(Color(0.28, 0.27, 0.32)))
+	home_button.pressed.connect(func() -> void: home_pressed.emit())
+	head.add_child(home_button)
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(10, 0)
+	head.add_child(gap)
 	equip_button = Button.new()
 	equip_button.text = "そうび"
 	equip_button.custom_minimum_size = Vector2(150, 56)
@@ -357,6 +377,10 @@ func set_equip_enabled(enabled: bool) -> void:
 	equip_button.disabled = not enabled
 
 
+func set_home_enabled(enabled: bool) -> void:
+	home_button.disabled = not enabled
+
+
 ## 装備画面を開く。
 func open_equipment(progress: GameProgress) -> void:
 	equipment.open(progress)
@@ -452,7 +476,7 @@ func show_dice_result(value: int, is_critical: bool) -> void:
 
 
 ## ステージクリア画面。
-## rewards: 手に入れた装備の名前。
+## rewards: ごほうびの説明（1 行ずつ）。
 func show_stage_clear(enemy_name: String, old_max_hp: int, new_max_hp: int, rewards: Array[String] = []) -> void:
 	_show_overlay("STAGE CLEAR!", "%s DEFEATED" % enemy_name, Color(1, 0.85, 0.25),
 		"LEVEL UP!  最大HP %d → %d" % [old_max_hp, new_max_hp] + _rewards_text(rewards),
@@ -462,7 +486,7 @@ func show_stage_clear(enemy_name: String, old_max_hp: int, new_max_hp: int, rewa
 func _rewards_text(rewards: Array[String]) -> String:
 	var text := ""
 	for r in rewards:
-		text += "\n%s を てにいれた！" % r
+		text += "\n" + r
 	return text
 
 
@@ -470,7 +494,7 @@ func _rewards_text(rewards: Array[String]) -> String:
 func show_game_clear(enemy_name: String, rewards: Array[String] = []) -> void:
 	_show_overlay("GAME CLEAR!", "%s DEFEATED" % enemy_name, Color(1, 0.85, 0.25),
 		"全ステージ制覇！おめでとう！" + _rewards_text(rewards),
-		[{"text": "もう一度遊ぶ", "action": &"restart"}, {"text": "そうび", "action": &"equip", "secondary": true}])
+		[{"text": "ホームへ", "action": &"home"}, {"text": "もう一度遊ぶ", "action": &"restart", "secondary": true}])
 
 
 ## 敗北画面。ステージ 2 以降では「最初から」も選べる。
@@ -479,6 +503,7 @@ func show_defeat(can_restart_from_first: bool) -> void:
 	if can_restart_from_first:
 		buttons.append({"text": "最初から", "action": &"restart", "secondary": true})
 	buttons.append({"text": "そうび", "action": &"equip", "secondary": true})
+	buttons.append({"text": "ホームへ", "action": &"home", "secondary": true})
 	_show_overlay("DEFEAT", "YOU WERE DEFEATED", Color(0.75, 0.2, 0.25), "", buttons)
 
 

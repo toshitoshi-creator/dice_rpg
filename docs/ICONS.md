@@ -22,13 +22,9 @@
 "icon": "swords/09",   # 炎の剣
 ```
 
-今使っているアイコン:
-
-| 装備 | アイコン |
-|---|---|
-| ゆうしゃのつるぎ / はがねのオノ / まほうのつえ | `swords/02` / `weapons/06` / `weapons/15` |
-| みならいのたて / はがねのたて / ゆうしゃのたて | `shields/01` / `shields/03` / `shields/02` |
-| たびびとのふく / くさりかたびら / ゆうしゃのよろい | `armors/01` / `armors/21` / `armors/07` |
+どの装備がどのアイコンを使っているかは、それぞれの定義ファイルの `"icon"` を見てください。
+サイコロのアイコン（`assets/icons/dice/<id>.png`）は画像ではなく、`scripts/data/dice_database.gd` の色と目から
+`godot --headless --path . -s res://tools/make_dice_icons.gd` で自動で作ります。
 
 ## 新しいアイコン画像を追加する
 

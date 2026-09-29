@@ -1,7 +1,9 @@
 class_name GameProgress
 extends RefCounted
-## 1 回のプレイ（ステージ 1 → ボス）の進行状況。
-## ステージをクリアするたびにプレイヤーの最大 HP が上がり、各ステージ開始時に全回復する。
+## プレイヤーのデータ。
+## - 1 回のぼうけん（チャプターのステージ 1 → ボス）の進行: stage_index, special_gauge など
+##   ステージをクリアするたびにプレイヤーの最大 HP が上がり、各ステージ開始時に全回復する。
+## - ずっと残るもの（save_path に保存）: ジェム、持っている装備・サイコロ、装備中のもの、クリアしたチャプター
 
 const BASE_MAX_HP := 100
 const MAX_HP_PER_CLEAR := 20
@@ -14,7 +16,20 @@ const SPECIAL_PER_ENEMY := 32.0
 ## 自分の最大 HP ぶんのダメージを受けたときに溜まる量
 const SPECIAL_ON_HURT := 20.0
 
+## 最初に持っているジェム（10 連ガチャ 1 回分）
+const START_GEMS := 1000
+## ステージクリアでもらえるジェム（ボスは BOSS_GEMS）
+const STAGE_GEMS := 50
+const BOSS_GEMS := 150
+## はじめてチャプターをクリアしたときのボーナス
+const FIRST_CLEAR_GEMS := 300
+
+## 今のぼうけんのチャプター（1〜）とステージ（0 = STAGE 1）
+var chapter: int = 1
 var stage_index: int = 0
+var gems: int = START_GEMS
+## クリアしたチャプター番号
+var cleared_chapters: Array[int] = []
 ## 装備中のもの {slot: id}（slot は EquipmentDatabase.SLOTS）
 var equipped: Dictionary = _default_equipment()
 ## 持っている装備 {slot: [id, ...]}。「最初から」を選んでもなくならない
@@ -25,7 +40,11 @@ var weapon_id: StringName:
 		return equipped[EquipmentDatabase.SLOT_WEAPON]
 	set(value):
 		equipped[EquipmentDatabase.SLOT_WEAPON] = value
-## 装備を保存するファイル（空なら保存しない）
+## 今のサイコロ（equipped の dice と同じ）
+var dice_id: StringName:
+	get:
+		return equipped[EquipmentDatabase.SLOT_DICE]
+## 保存するファイル（空なら保存しない）
 var save_path := ""
 var special_gauge: float = 0.0
 ## ステージ開始時のゲージ（再挑戦のときに戻す）
@@ -57,6 +76,10 @@ func weapon() -> Dictionary:
 	return WeaponDatabase.get_weapon(weapon_id)
 
 
+func dice() -> Dictionary:
+	return DiceDatabase.get_dice(dice_id)
+
+
 func is_special_ready() -> bool:
 	return special_gauge >= SPECIAL_MAX - 0.001
 
@@ -80,15 +103,15 @@ func _add_special(amount: float) -> void:
 
 
 func current_stage() -> StageData:
-	return StageDatabase.get_stage(stage_index)
+	return StageDatabase.get_stage(stage_index, chapter)
 
 
 func stage_count() -> int:
-	return StageDatabase.count()
+	return StageDatabase.count(chapter)
 
 
 func is_final_stage() -> bool:
-	return stage_index >= StageDatabase.count() - 1
+	return stage_index >= stage_count() - 1
 
 
 ## ステージ番号から決まるプレイヤーの最大 HP（再挑戦しても同じ値になる）。
@@ -127,16 +150,47 @@ func equip(slot: StringName, id: StringName) -> bool:
 	return true
 
 
-## ステージ（0 = STAGE 1）をクリアしたごほうびを受け取る。新しく手に入った [[slot, id], ...] を返す。
-func claim_stage_rewards(index: int) -> Array:
-	var got := []
-	for pair in EquipmentDatabase.rewards_for_stage(index):
-		if not is_owned(pair[0], pair[1]):
-			(owned[pair[0]] as Array).append(pair[1])
-			got.append(pair)
-	if not got.is_empty():
-		save()
-	return got
+## 装備・サイコロを持ち物に加える。新しく手に入ったら true（持っていたら false）。
+func add_item(slot: StringName, id: StringName) -> bool:
+	if not EquipmentDatabase.has_item(slot, id) or is_owned(slot, id):
+		return false
+	(owned[slot] as Array).append(id)
+	return true
+
+
+func can_spend(amount: int) -> bool:
+	return gems >= amount
+
+
+## ジェムを使う。足りなければ false。
+func spend_gems(amount: int) -> bool:
+	if gems < amount:
+		return false
+	gems -= amount
+	save()
+	return true
+
+
+func add_gems(amount: int) -> void:
+	gems += amount
+	save()
+
+
+## 今のステージをクリアしたごほうび（ジェム）。はじめてチャプターをクリアしたらボーナスも。
+## {"gems": もらった合計, "first_clear": bool} を返す。
+func claim_stage_clear() -> Dictionary:
+	var amount := BOSS_GEMS if current_stage().is_boss else STAGE_GEMS
+	var first := false
+	if is_final_stage() and not cleared_chapters.has(chapter):
+		cleared_chapters.append(chapter)
+		amount += FIRST_CLEAR_GEMS
+		first = true
+	add_gems(amount)
+	return {"gems": amount, "first_clear": first}
+
+
+func is_chapter_cleared(c: int) -> bool:
+	return cleared_chapters.has(c)
 
 
 ## 装備を保存する（Web 版ではブラウザに保存される）。
@@ -144,6 +198,8 @@ func save() -> void:
 	if save_path == "":
 		return
 	var cfg := ConfigFile.new()
+	cfg.set_value("player", "gems", gems)
+	cfg.set_value("player", "cleared_chapters", cleared_chapters)
 	for slot in EquipmentDatabase.SLOTS:
 		cfg.set_value("equipped", slot, String(equipped[slot]))
 		cfg.set_value("owned", slot, (owned[slot] as Array).map(func(id: StringName) -> String: return String(id)))
@@ -156,6 +212,8 @@ func load_save(path: String) -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(path) != OK:
 		return
+	gems = int(cfg.get_value("player", "gems", START_GEMS))
+	cleared_chapters.assign(cfg.get_value("player", "cleared_chapters", []))
 	for slot in EquipmentDatabase.SLOTS:
 		for id in cfg.get_value("owned", slot, []):
 			if EquipmentDatabase.has_item(slot, StringName(id)) and not is_owned(slot, StringName(id)):
@@ -166,4 +224,10 @@ func load_save(path: String) -> void:
 
 
 func advance() -> void:
-	stage_index = mini(stage_index + 1, StageDatabase.count() - 1)
+	stage_index = mini(stage_index + 1, stage_count() - 1)
+
+
+## チャプターを最初から始める準備をする。
+func start_chapter(c: int) -> void:
+	chapter = c
+	reset()

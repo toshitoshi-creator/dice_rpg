@@ -32,8 +32,8 @@ func _run() -> void:
 	_test_special_gauge_math()
 	_test_equipment_data()
 
-	var scene: PackedScene = load(MAIN_SCENE)
-	manager = scene.instantiate() as BattleManager
+	_test_gacha_math()
+	manager = BattleManager.new()
 	manager.use_save = false
 	root.add_child(manager)
 	await _frames(10)
@@ -45,6 +45,9 @@ func _run() -> void:
 	await _test_defeat_stage1()
 	await _test_stage_progression()
 	await _test_defeat_later_stage()
+	manager.queue_free()
+	await _frames(3)
+	await _test_app()
 
 	print("")
 	print("=== RESULT: %d passed, %d failed ===" % [passed, failed])
@@ -353,7 +356,7 @@ func _test_equipment_data() -> void:
 	for slot in EquipmentDatabase.SLOTS:
 		if EquipmentDatabase.items(slot).size() < 3 or not p.is_owned(slot, p.equipped[slot]):
 			ok = false
-	_check(ok, "3 slots (weapon / shield / armor), each with 3+ items and a starting item equipped")
+	_check(ok, "4 slots (weapon / shield / armor / dice), each with 3+ items and a starting item equipped")
 	var icons_ok := true
 	for slot in EquipmentDatabase.SLOTS:
 		for id in EquipmentDatabase.items(slot):
@@ -369,15 +372,28 @@ func _test_equipment_data() -> void:
 	_check(sets_ok, "all 200 icons (weapons / swords / armors / shields x 50) are available")
 	_check(p.attack_bonus() == 0 and p.defense_bonus() == 0 and p.hp_bonus() == 0 and p.weapon_id == WeaponDatabase.DEFAULT_WEAPON, "starting equipment adds nothing (base stats)")
 	_check(not p.equip(&"shield", &"steel_shield"), "cannot equip an item you do not have")
-	var got := p.claim_stage_rewards(0)
-	_check(got.size() >= 1 and p.is_owned(&"shield", &"steel_shield"), "clearing STAGE 1 gives はがねのたて")
-	_check(p.claim_stage_rewards(0).is_empty(), "rewards are only given once")
+	_check(p.add_item(&"shield", &"steel_shield") and not p.add_item(&"shield", &"steel_shield"), "items are added once (a second copy is a duplicate)")
 	_check(p.equip(&"shield", &"steel_shield") and p.defense_bonus() == 2, "equipping はがねのたて gives DEF +2")
-	for i in StageDatabase.count():
-		p.claim_stage_rewards(i)
+	p.add_item(&"armor", &"hero_armor")
+	p.add_item(&"weapon", &"steel_axe")
+	p.add_item(&"weapon", &"magic_staff")
 	p.equip(&"armor", &"hero_armor")
 	p.equip(&"weapon", &"steel_axe")
-	_check(p.total_max_hp(0) == 160 and p.attack_bonus() == 5, "ゆうしゃのよろい: max HP +60, はがねのオノ: ATK +5")
+	_check(p.total_max_hp(0) == 180 and p.attack_bonus() == 5, "ゆうしゃのよろい: max HP +80, はがねのオノ: ATK +5")
+	var rar_ok := true
+	for slot in EquipmentDatabase.SLOTS:
+		var seen := {}
+		for id in EquipmentDatabase.items(slot):
+			seen[EquipmentDatabase.rarity(slot, id)] = true
+		if seen.size() != 4:
+			rar_ok = false
+	_check(rar_ok, "every slot has N / R / SR / SSR items")
+	var faces_ok := true
+	for id in DiceDatabase.DICE:
+		var f: Array = DiceDatabase.DICE[id]["faces"]
+		if f.size() != 6 or not f.all(func(v): return v >= 1 and v <= 6):
+			faces_ok = false
+	_check(faces_ok and DiceDatabase.DICE.size() >= 6, "%d dice, each with 6 faces of 1-6" % DiceDatabase.DICE.size())
 	var axe := p.weapon()
 	_check(axe["special_type"] == &"dice_faces" and (axe["special_faces"] as Array).all(func(v): return v == 1 or v == 6), "each weapon has its own special (axe: %s)" % axe["special_name"])
 	var calc := DamageCalculator.new()
@@ -392,7 +408,7 @@ func _test_equipment_data() -> void:
 	p.save()
 	var q := GameProgress.new()
 	q.load_save(path)
-	_check(q.weapon_id == &"steel_axe" and q.equipped[&"armor"] == &"hero_armor" and q.is_owned(&"weapon", &"magic_staff"), "equipment and items are saved and loaded")
+	_check(q.weapon_id == &"steel_axe" and q.equipped[&"armor"] == &"hero_armor" and q.is_owned(&"weapon", &"magic_staff") and q.gems == p.gems, "gems, equipment and items are saved and loaded")
 	p.reset()
 	_check(p.is_owned(&"armor", &"hero_armor") and p.weapon_id == &"steel_axe", "'restart from stage 1' keeps your items")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
@@ -410,16 +426,19 @@ func _test_equipment() -> void:
 	manager.request_roll()
 	_check(manager.state == BattleState.State.PLAYER_TURN, "cannot roll while the equipment screen is open")
 	_check(screen.get_card(&"steel_axe") != null and screen.get_card(&"steel_axe").text.contains("？？？"), "items you do not have yet are shown as ？？？")
-	for i in StageDatabase.count():
-		manager.progress.claim_stage_rewards(i)
+	for pair in [[&"armor", &"chain_mail"], [&"shield", &"hero_shield"], [&"weapon", &"magic_staff"], [&"dice", &"gold_die"]]:
+		manager.progress.add_item(pair[0], pair[1])
 	var hp_before := manager.player.hp
 	var max_before := manager.player.max_hp
 	screen.show_slot(&"armor")
 	screen.get_card(&"chain_mail").pressed.emit()
-	_check(manager.progress.equipped[&"armor"] == &"chain_mail" and manager.player.max_hp == max_before + 30 and manager.player.hp == hp_before + 30, "くさりかたびら: max HP +30 right away")
+	_check(manager.progress.equipped[&"armor"] == &"chain_mail" and manager.player.max_hp == max_before + 25 and manager.player.hp == hp_before + 25, "くさりかたびら: max HP +25 right away")
 	screen.show_slot(&"shield")
 	screen.get_card(&"hero_shield").pressed.emit()
-	_check(manager.player.defense == 4, "ゆうしゃのたて: DEF 4 right away")
+	_check(manager.player.defense == 5, "ゆうしゃのたて: DEF 5 right away")
+	screen.show_slot(&"dice")
+	screen.get_card(&"gold_die").pressed.emit()
+	_check(manager.dice.face_values == [4, 6, 5, 6, 5, 6] and manager.progress.dice_id == &"gold_die", "おうごんのサイコロ: the die changes right away")
 	screen.show_slot(&"weapon")
 	screen.get_card(&"magic_staff").pressed.emit()
 	_check(manager.player.attack_bonus == 2 and manager.progress.weapon()["special_type"] == &"double_damage", "まほうのつえ: ATK +2 and a different special")
@@ -441,9 +460,117 @@ func _test_equipment() -> void:
 	# 元の装備に戻す（以降のテストは基本の能力で行う）
 	for slot in EquipmentDatabase.SLOTS:
 		manager.change_equipment(slot, EquipmentDatabase.default_item(slot))
-	_check(manager.player.attack_bonus == 0 and manager.player.defense == 0 and manager.player.max_hp == 100, "back to the starting equipment")
+	_check(manager.player.attack_bonus == 0 and manager.player.defense == 0 and manager.player.max_hp == 100 and manager.dice.face_values == [1, 6, 2, 5, 3, 4], "back to the starting equipment (and the normal die)")
 	manager.progress.special_gauge = 0.0
 	manager._update_special_ui()
+
+
+func _test_gacha_math() -> void:
+	print("\n[Unit] Gacha and gems")
+	var p := GameProgress.new()
+	_check(p.gems == GameProgress.START_GEMS, "you start with %d gems" % p.gems)
+	var g := Gacha.new()
+	g.rng.seed = 12345
+	var counts := {1: 0, 2: 0, 3: 0, 4: 0}
+	for i in 20000:
+		counts[g.draw_one(Gacha.BANNER_EQUIPMENT)["rarity"]] += 1
+	var rates_ok := true
+	for r in counts:
+		if absf(counts[r] / 20000.0 - Gacha.RATES[r]) > 0.01:
+			rates_ok = false
+	_check(rates_ok, "rarity rates N/R/SR/SSR = %s" % str(counts))
+	var results := g.pull(p, Gacha.BANNER_EQUIPMENT, 10)
+	var refund := 0
+	var has_sr := false
+	var owned_ok := true
+	for d in results:
+		refund += d["gems"]
+		has_sr = has_sr or d["rarity"] >= 3
+		if not p.is_owned(d["slot"], d["id"]) or d["slot"] == EquipmentDatabase.SLOT_DICE:
+			owned_ok = false
+	_check(results.size() == 10 and has_sr, "10-pull gives 10 items with at least one SR or better")
+	_check(owned_ok, "pulled equipment is added to your items (no dice from the equipment gacha)")
+	_check(p.gems == GameProgress.START_GEMS - Gacha.TEN_COST + refund, "10-pull costs %d gems (duplicates refunded %d)" % [Gacha.TEN_COST, refund])
+	var before := p.gems
+	p.gems = 50
+	_check(g.pull(p, Gacha.BANNER_DICE, 1).is_empty() and p.gems == 50, "cannot pull without enough gems")
+	p.gems = 1000
+	var dice_results := g.pull(p, Gacha.BANNER_DICE, 1)
+	_check(dice_results.size() == 1 and dice_results[0]["slot"] == EquipmentDatabase.SLOT_DICE, "dice gacha gives a die")
+	var dup := {"slot": &"weapon", "id": &"brave_sword"}
+	_check(not p.add_item(dup["slot"], dup["id"]), "a duplicate is not added twice")
+	p.gems = before
+	# ステージクリアのジェム
+	var q := GameProgress.new()
+	q.start_chapter(1)
+	var r1 := q.claim_stage_clear()
+	q.stage_index = q.stage_count() - 1
+	var r2 := q.claim_stage_clear()
+	var r3 := q.claim_stage_clear()
+	_check(r1["gems"] == GameProgress.STAGE_GEMS and r2["gems"] == GameProgress.BOSS_GEMS + GameProgress.FIRST_CLEAR_GEMS and r2["first_clear"] and r3["gems"] == GameProgress.BOSS_GEMS, "stage clear gems: %d / boss %d (+%d first clear)" % [GameProgress.STAGE_GEMS, GameProgress.BOSS_GEMS, GameProgress.FIRST_CLEAR_GEMS])
+	_check(q.is_chapter_cleared(1) and ChapterScreen.is_unlocked(q, 1) and not ChapterScreen.is_unlocked(GameProgress.new(), 2), "chapter 1 is cleared; chapter 2 is locked")
+
+
+func _test_app() -> void:
+	print("\n[Test] Home / chapters / gacha / equipment screens")
+	var app := (load(MAIN_SCENE) as PackedScene).instantiate() as GameApp
+	app.use_save = false
+	root.add_child(app)
+	await _frames(5)
+	_check(app.current_screen == GameApp.SCREEN_HOME and app.home.visible and app.battle == null, "the game starts on the HOME screen")
+	await _shot("20_home.png")
+	app.home.adventure_button.pressed.emit()
+	await _frames(3)
+	_check(app.current_screen == GameApp.SCREEN_CHAPTERS and not app.chapters.get_card(1).disabled and app.chapters.get_card(2).disabled, "chapter screen: CHAPTER 1 playable, CHAPTER 2 locked")
+	await _shot("21_chapters.png")
+	app.chapters.back_pressed.emit()
+	await _frames(2)
+	app.home.gacha_button.pressed.emit()
+	await _frames(3)
+	_check(app.current_screen == GameApp.SCREEN_GACHA and not app.gacha_screen.ten_button.disabled, "gacha screen opens (10-pull available with the starting gems)")
+	await _shot("22_gacha.png")
+	app.gacha.rng.seed = 7
+	app.gacha_screen.ten_button.pressed.emit()
+	_check(app.progress.gems < GameProgress.START_GEMS and app.gacha_screen.result_view.visible, "10-pull spends gems and shows the result")
+	var t0 := Time.get_ticks_msec()
+	while app.gacha_screen.result_view.is_running() and Time.get_ticks_msec() - t0 < 15000:
+		await process_frame
+	await _seconds(0.4)
+	await _shot("23_gacha_result.png")
+	app.gacha_screen.result_view.close()
+	app.gacha_screen.show_banner(Gacha.BANNER_DICE)
+	await _frames(2)
+	await _shot("24_gacha_dice.png")
+	app.gacha_screen.back_pressed.emit()
+	await _frames(2)
+	app.home.equipment_button.pressed.emit()
+	await _frames(3)
+	_check(app.current_screen == GameApp.SCREEN_EQUIPMENT and app.equipment.visible, "equipment screen opens from HOME")
+	app.progress.add_item(&"dice", &"flame_die")
+	app.equipment.show_slot(&"dice")
+	app.equipment.get_card(&"flame_die").pressed.emit()
+	_check(app.progress.dice_id == &"flame_die", "equip a die from the equipment screen")
+	await _frames(2)
+	await _shot("25_equipment_dice.png")
+	app.equipment.close()
+	await _frames(2)
+	_check(app.current_screen == GameApp.SCREEN_HOME, "closing equipment goes back HOME")
+	app.home.adventure_button.pressed.emit()
+	await _frames(2)
+	app.chapters.get_card(1).pressed.emit()
+	await _frames(5)
+	_check(app.current_screen == GameApp.SCREEN_BATTLE and app.battle != null and app.battle.stage.chapter == 1, "choosing CHAPTER 1 starts the battle")
+	var b := app.battle
+	var t1 := Time.get_ticks_msec()
+	while b.state != BattleState.State.PLAYER_TURN and Time.get_ticks_msec() - t1 < 8000:
+		await process_frame
+	_check(b.dice.face_values == [3, 6, 4, 5, 5, 6], "the equipped die (ほのおのサイコロ) is used in battle")
+	await _shot("26_battle_flame_die.png")
+	b.ui.home_button.pressed.emit()
+	await _frames(3)
+	_check(app.current_screen == GameApp.SCREEN_HOME and app.battle == null, "HOME button leaves the battle")
+	app.queue_free()
+	await _frames(2)
 
 
 func _test_special() -> void:
@@ -594,8 +721,15 @@ func _test_stage_progression() -> void:
 		manager.request_roll()
 		_check(manager.state == BattleState.State.SETUP, "cannot roll while marching")
 		_check(not manager.dice.visible and manager.ui.is_road_visible(), "dice hidden and road map shown while marching")
-		await _seconds(1.3 * (3.0 if take_shots else 1.0))
-		_check(manager.field.get_scroll_offset() > 1.0 and manager.ui.get_road_progress() > i, "ground scrolls and road marker moves forward")
+		# 描画が遅い環境でも、歩き終わる前に確認できるよう少しずつ見る
+		var moved := false
+		var tm := Time.get_ticks_msec()
+		while Time.get_ticks_msec() - tm < 2400 and manager.is_marching:
+			if manager.field.get_scroll_offset() > 1.0 and manager.ui.get_road_progress() > i:
+				moved = true
+				break
+			await process_frame
+		_check(moved, "ground scrolls and road marker moves forward")
 		if i == 0:
 			await _shot("06b_march.png")
 		await _launch_intro_done()
