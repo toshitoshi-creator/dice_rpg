@@ -314,7 +314,11 @@ func _test_custom_models() -> void:
 	_check(player != null and weapon != null and String(weapon.name).begins_with("Weapon"), "player .glb loads and its Weapon node swings")
 	var size := ModelKit.compute_aabb(slime).size
 	_check(size.x > size.y * 0.5 and ModelKit.compute_aabb(slime).end.y > 0.5, "glb is Y-up after import (height %.2f)" % ModelKit.compute_aabb(slime).end.y)
-	_check(CustomModels.enemy_path(EnemyDatabase.get_enemy(1)) == "" and CustomModels.player_path() == "", "no custom model in assets -> built-in models are used")
+	_check(CustomModels.enemy_path(EnemyDatabase.get_enemy(1)) == "", "enemies without a .glb keep their built-in models")
+	var hero := PlayerActor.new()
+	holder.add_child(hero)
+	var uses_hero := hero.find_child("CustomModel", true, false) != null
+	_check(CustomModels.player_path() != "" and uses_hero and hero._sword_pivot != null and String(hero._sword_pivot.name) == "Weapon", "the hero (assets/models/player.glb) is used as the player and swings his sword")
 	holder.queue_free()
 	await _frames(2)
 

@@ -7,7 +7,7 @@ var _sword_pivot: Node3D
 var _sword_rest := Vector3(-20, 0, 0)
 var _swing_sign := 1.0
 ## Blender モデルを使う場合の目標の高さ
-const CUSTOM_HEIGHT := 1.95
+const CUSTOM_HEIGHT := 2.2
 
 
 func _init() -> void:

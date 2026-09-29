@@ -16,7 +16,7 @@ Claude にスクリプトを頼む → Blender で実行 → 手直し（任意�
 
 | ファイル | 作られるもの | 書き出されるファイル |
 |---|---|---|
-| `tools/blender/make_player.py` | 主人公（剣士） | `player.glb` |
+| `tools/blender/make_player.py` | 主人公（勇者・設定資料をもとにしたもの。ゲームに入っている） | `player.glb` |
 | `tools/blender/make_enemy_slime.py` | 敵のお手本（スライム） | `slime.glb` |
 
 1. Blender を開く
@@ -85,6 +85,8 @@ living_armor, gargoyle, dragon, evil_eye, mimic, reaper, demon_lord
 
 中身の無い **Empty** を作って `Weapon` と名付け、腕や武器をその子にするのがおすすめです
 （`make_player.py` がその作り方になっています）。
+
+`make_player.py` の勇者の見た目（4 方向）: [blender/hero_preview.jpg](blender/hero_preview.jpg)
 体全体の動き（ぷるぷる・ふわふわ・のけぞり・踏み込み・撃破）はゲーム側が付けます。
 
 ### 色違い用のマテリアル名（役割名）
