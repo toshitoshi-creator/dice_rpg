@@ -22,6 +22,7 @@ var _stats: Label
 var _special: Label
 var _tabs: Array[Button] = []
 var _list: VBoxContainer
+var _scroll: DragScroll
 var _detail_name: Label
 var _detail_icon: TextureRect
 var _detail_text: Label
@@ -112,14 +113,13 @@ func _ready() -> void:
 		_tabs.append(b)
 
 	# 装備の一覧
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	box.add_child(scroll)
+	_scroll = DragScroll.new()
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.add_child(_scroll)
 	_list = VBoxContainer.new()
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_list.add_theme_constant_override("separation", 12)
-	scroll.add_child(_list)
+	_scroll.add_child(_list)
 
 	# 説明
 	var detail := PanelContainer.new()
@@ -218,6 +218,7 @@ func show_slot(slot: StringName) -> void:
 	_slot = slot
 	_focus_id = &""
 	refresh()
+	_scroll.scroll_vertical = 0
 
 
 ## 付けかえたあとなどに表示を作り直す。
@@ -289,6 +290,8 @@ func _make_card(id: StringName) -> Button:
 
 
 func _on_card_pressed(id: StringName) -> void:
+	if _scroll.was_dragged():
+		return
 	_focus_id = id
 	if _progress.is_owned(_slot, id) and _progress.equipped[_slot] != id:
 		equip_requested.emit(_slot, id)
@@ -340,3 +343,8 @@ func get_card(id: StringName) -> Button:
 		if child is Button and child.get_meta(&"item_id") == id:
 			return child
 	return null
+
+
+## テスト用
+func get_scroll() -> DragScroll:
+	return _scroll

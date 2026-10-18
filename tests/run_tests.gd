@@ -633,6 +633,53 @@ func _test_gacha_math() -> void:
 	_check(q.is_chapter_cleared(1) and q.is_chapter_unlocked(1) and not GameProgress.new().is_chapter_unlocked(2), "chapter 1 is cleared; chapter 2 is locked")
 
 
+## 装備画面の一覧を指でドラッグしてスクロールできるか（ボタンの上からでも。ドラッグはタップにならない）
+func _test_drag_scroll(app: GameApp) -> void:
+	app.equipment.show_slot(&"weapon")
+	await _frames(3)
+	var scroll := app.equipment.get_scroll()
+	# ヘッドレスの窓は小さく一覧の高さが 0 になるので、高さを決めてから試す（イベントもスクロールへ直接わたす）
+	scroll.custom_minimum_size.y = 400
+	await _frames(2)
+	_check(scroll.get_v_scroll_bar().max_value > scroll.size.y, "the weapon list is longer than the screen")
+	var weapon := app.progress.weapon_id
+	var rect := scroll.get_global_rect()
+	var from := rect.get_center() + Vector2(0, rect.size.y * 0.3)
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = from
+	press.global_position = from
+	scroll._input(press)
+	for i in range(1, 11):
+		var move := InputEventMouseMotion.new()
+		move.position = from - Vector2(0, 30 * i)
+		move.global_position = move.position
+		move.button_mask = MOUSE_BUTTON_MASK_LEFT
+		scroll._input(move)
+		await _frames(1)
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.position = from - Vector2(0, 300)
+	release.global_position = release.position
+	scroll._input(release)
+	await _frames(2)
+	_check(scroll.scroll_vertical >= 250, "dragging the equipment list scrolls it (%d)" % scroll.scroll_vertical)
+	_check(scroll.was_dragged() and app.progress.weapon_id == weapon, "a drag over a card does not equip it")
+	var top := scroll.scroll_vertical
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.pressed = true
+	wheel.position = rect.get_center()
+	wheel.global_position = wheel.position
+	scroll._input(wheel)
+	await _frames(2)
+	_check(scroll.scroll_vertical < top, "the mouse wheel scrolls the list too")
+	scroll.custom_minimum_size.y = 0
+	app.equipment.show_slot(&"dice")
+	await _frames(1)
+
+
 func _test_app() -> void:
 	print("\n[Test] Home / chapters / gacha / equipment screens")
 	var app := (load(MAIN_SCENE) as PackedScene).instantiate() as GameApp
@@ -694,6 +741,7 @@ func _test_app() -> void:
 	app.equipment.show_slot(&"dice")
 	app.equipment.get_card(&"flame_die").pressed.emit()
 	_check(app.progress.dice_id == &"flame_die", "equip a die from the equipment screen")
+	await _test_drag_scroll(app)
 	await _frames(2)
 	await _shot("25_equipment_dice.png")
 	app.equipment.close()

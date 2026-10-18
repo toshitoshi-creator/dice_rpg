@@ -12,6 +12,7 @@ var _chapter := 1
 var _title: Label
 var _level: Label
 var _grid: GridContainer
+var _scroll: DragScroll
 
 
 func _init() -> void:
@@ -38,16 +39,15 @@ func _ready() -> void:
 	_level = UIStyle.label("", 28, UIStyle.TEXT, 8)
 	_level.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_level)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	box.add_child(scroll)
+	_scroll = DragScroll.new()
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.add_child(_scroll)
 	_grid = GridContainer.new()
 	_grid.columns = 2
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid.add_theme_constant_override("h_separation", 14)
 	_grid.add_theme_constant_override("v_separation", 14)
-	scroll.add_child(_grid)
+	_scroll.add_child(_grid)
 
 
 func current_chapter() -> int:
@@ -102,7 +102,9 @@ func _make_button(s: int) -> Button:
 	b.add_theme_stylebox_override("pressed", UIStyle.box(color.darkened(0.45), border, 4, 18, 14, 5))
 	b.add_theme_stylebox_override("disabled", UIStyle.box(color.darkened(0.35), border, 4, 18, 14, 9))
 	b.disabled = not unlocked
-	b.pressed.connect(func() -> void: stage_selected.emit(_chapter, s))
+	b.pressed.connect(func() -> void:
+		if not _scroll.was_dragged():
+			stage_selected.emit(_chapter, s))
 	return b
 
 
