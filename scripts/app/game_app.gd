@@ -99,6 +99,8 @@ func _go(screen: StringName) -> void:
 
 func _show(screen: StringName) -> void:
 	current_screen = screen
+	if screen != SCREEN_BATTLE:
+		PowerSaver.enter_menu()
 	_menu_layer.visible = screen != SCREEN_BATTLE
 	for key in _screens:
 		if key != SCREEN_EQUIPMENT:
@@ -140,6 +142,7 @@ func start_stage(c: int, s: int) -> void:
 	battle.progress = progress
 	battle.exit_requested.connect(_on_battle_exit)
 	add_child(battle)
+	PowerSaver.enter_battle(get_viewport())
 	_show(SCREEN_BATTLE)
 
 

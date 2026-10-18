@@ -154,7 +154,8 @@ func _build_environment() -> void:
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 0.95
-	env.glow_enabled = true
+	# グローは全画面に何回もぼかしをかけるので、スマホでは切る
+	env.glow_enabled = not PowerSaver.is_light()
 	env.glow_intensity = 0.5
 	env.glow_bloom = 0.05
 	env.fog_enabled = true
@@ -176,6 +177,11 @@ func _build_environment() -> void:
 	sun.shadow_blur = 1.5
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 	sun.directional_shadow_max_distance = 40.0
+	if PowerSaver.is_light():
+		# 影は 1 枚だけ・近くだけ（バトルは真ん中に集まっているので足りる）
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+		sun.directional_shadow_max_distance = 22.0
+		sun.shadow_blur = 1.0
 	sun.rotation_degrees = Vector3(-55, 35, 0)
 	add_child(sun)
 
